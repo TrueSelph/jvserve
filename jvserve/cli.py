@@ -36,7 +36,7 @@ class JacCmd:
         ) -> None:
             """Launch the jac application."""
             from jaclang import jac_import
-            
+
             # set up logging
             JVLogger.setup_logging(level=loglevel)
             logger = logging.getLogger(__name__)
