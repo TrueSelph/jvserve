@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from logging.handlers import RotatingFileHandler
 
 
@@ -45,6 +46,9 @@ class JVLogger:
         )
         console_handler = logging.StreamHandler()
         console_handler.setFormatter(console_formatter)
+
+        if not os.path.exists(os.path.dirname(log_file)):
+            os.makedirs(os.path.dirname(log_file))
 
         # File handler with JSON formatter
         json_file_handler = logging.FileHandler(log_file)

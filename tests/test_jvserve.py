@@ -4,7 +4,7 @@ import os
 import subprocess
 import unittest
 from contextlib import suppress
-from time import sleep
+from time import sleep, time
 from typing import Optional
 
 import httpx
@@ -18,8 +18,8 @@ class JVServeCliTest(unittest.TestCase):
         self.host = "http://0.0.0.0:8000"
         self.server_process: Optional[subprocess.Popen] = None
 
-    def run_jvserve(self, filename: str, wait: int = 5) -> None:
-        """Run jvserve in a subprocess."""
+    def run_jvserve(self, filename: str, max_wait: int = 30) -> None:
+        """Run jvserve in a subprocess and wait until it's available."""
         # Ensure any process running on port 8000 is terminated
         subprocess.run(["fuser", "-k", "8000/tcp"], capture_output=True, text=True)
 
@@ -35,22 +35,25 @@ class JVServeCliTest(unittest.TestCase):
             text=True,
         )
 
-        sleep(wait)  # Allow some time for the server to start
-
-        # Validate the server is running
-        self.check_server()
+        # Wait until the server is ready (max 30s)
+        url = f"{self.host}/docs"
+        self.wait_for_server(url, max_wait)
 
     def stop_server(self) -> None:
         """Stop the running server."""
         if self.server_process:
             self.server_process.kill()
 
-    def check_server(self) -> None:
-        """Ensure the server is responding."""
-        with suppress(Exception):
-            res = httpx.get(f"{self.host}/healthz")
-            res.raise_for_status()
-            self.assertEqual(res.status_code, 200)
+    def wait_for_server(self, url: str, max_wait: int = 30) -> None:
+        """Wait for the server to be available, checking every second."""
+        start_time = time()
+        while time() - start_time < max_wait:
+            with suppress(Exception):
+                res = httpx.get(url, timeout=2)
+                if res.status_code == 200:
+                    return  # Server is ready
+            sleep(1)
+        raise TimeoutError(f"Server at {url} did not start within {max_wait} seconds.")
 
     def test_jvserve_runs(self) -> None:
         """Ensure `jac jvserve` runs successfully."""
@@ -82,20 +85,16 @@ class JVServeCliTest(unittest.TestCase):
         with open(f"{directory}/test.txt", "w") as f:
             f.write("Hello, World!")
 
-        env = os.environ.copy()
-        env["COVERAGE_PROCESS_START"] = ".coveragerc"  # Make sure .coveragerc exists
-        env["PYTHONPATH"] = os.getcwd()
-
         try:
             server_process = subprocess.Popen(
                 ["jac", "jvfileserve", directory, "--port", "9000"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                env=env,
             )
 
-            sleep(5)  # Give the server time to start
+            # Wait for the file server to be ready
+            self.wait_for_server("http://0.0.0.0:9000/files/test.txt")
 
             res = httpx.get("http://0.0.0.0:9000/files/test.txt")
             self.assertEqual(res.status_code, 200)
