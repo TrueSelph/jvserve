@@ -37,7 +37,8 @@ class JVServeCliTest(unittest.TestCase):
 
         # Wait until the server is ready (max 90s)
         try:
-            self.wait_for_server(self.host, max_wait)
+            url = f"{self.host}/docs"
+            self.wait_for_server(url, max_wait)
         except TimeoutError:
             self.log_server_output()
             raise  # Re-raise the timeout error

@@ -7,7 +7,6 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
 
 from jac_cloud.jaseci.security import authenticator
-from jaclang import jac_import
 from jaclang.cli.cmdreg import cmd_registry
 from jaclang.plugin.default import hookimpl
 from jaclang.runtimelib.context import ExecutionContext
@@ -36,6 +35,8 @@ class JacCmd:
             workers: Optional[int] = None,
         ) -> None:
             """Launch the jac application."""
+            from jaclang import jac_import
+            
             # set up logging
             JVLogger.setup_logging(level=loglevel)
             logger = logging.getLogger(__name__)
