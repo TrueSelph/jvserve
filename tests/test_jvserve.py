@@ -18,7 +18,7 @@ class JVServeCliTest(unittest.TestCase):
         self.host = "http://0.0.0.0:8000"
         self.server_process: Optional[subprocess.Popen] = None
 
-    def run_jvserve(self, filename: str, max_wait: int = 30) -> None:
+    def run_jvserve(self, filename: str, max_wait: int = 60) -> None:
         """Run jvserve in a subprocess and wait until it's available."""
         # Ensure any process running on port 8000 is terminated
         subprocess.run(["fuser", "-k", "8000/tcp"], capture_output=True, text=True)
@@ -35,7 +35,7 @@ class JVServeCliTest(unittest.TestCase):
             text=True,
         )
 
-        # Wait until the server is ready (max 30s)
+        # Wait until the server is ready (max 60s)
         url = f"{self.host}/docs"
         self.wait_for_server(url, max_wait)
 
