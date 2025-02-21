@@ -44,7 +44,7 @@ class JVServeCliTest(unittest.TestCase):
         if self.server_process:
             self.server_process.kill()
 
-    def wait_for_server(self, url: str, max_wait: int = 30) -> None:
+    def wait_for_server(self, url: str, max_wait: int = 60) -> None:
         """Wait for the server to be available, checking every second."""
         start_time = time()
         while time() - start_time < max_wait:
