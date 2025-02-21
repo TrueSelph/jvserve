@@ -1,4 +1,4 @@
-name: Running jvserve test cases
+name: Running jvcli test cases
 
 on:
   pull_request:
@@ -22,8 +22,7 @@ jobs:
         python-version: 3.12
 
     - name: Install dependencies
-      run: 
-        - pip install .[dev]
+      run: pip install .[dev]
 
     - name: Run tests
       run: pytest
