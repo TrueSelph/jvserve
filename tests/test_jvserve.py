@@ -15,7 +15,7 @@ class JVServeCliTest(unittest.TestCase):
 
     def setUp(self) -> None:
         """Setup the test environment."""
-        self.host = "http://0.0.0.0:8000"
+        self.host = "http://127.0.0.1:8000"
         self.server_process: Optional[subprocess.Popen] = None
 
     def run_jvserve(self, filename: str, max_wait: int = 60) -> None:
@@ -94,9 +94,9 @@ class JVServeCliTest(unittest.TestCase):
             )
 
             # Wait for the file server to be ready
-            self.wait_for_server("http://0.0.0.0:9000/files/test.txt")
+            self.wait_for_server("http://127.0.0.1:9000/files/test.txt")
 
-            res = httpx.get("http://0.0.0.0:9000/files/test.txt")
+            res = httpx.get("http://127.0.0.1:9000/files/test.txt")
             self.assertEqual(res.status_code, 200)
             self.assertEqual(res.text, "Hello, World!")
 
