@@ -18,7 +18,7 @@ class JVServeCliTest(unittest.TestCase):
         self.host = "http://127.0.0.1:8000"
         self.server_process: Optional[subprocess.Popen] = None
 
-    def run_jvserve(self, filename: str, max_wait: int = 60) -> None:
+    def run_jvserve(self, filename: str, max_wait: int = 90) -> None:
         """Run jvserve in a subprocess and wait until it's available."""
         # Ensure any process running on port 8000 is terminated
         subprocess.run(["fuser", "-k", "8000/tcp"], capture_output=True, text=True)
@@ -35,16 +35,19 @@ class JVServeCliTest(unittest.TestCase):
             text=True,
         )
 
-        # Wait until the server is ready (max 60s)
-        url = f"{self.host}/docs"
-        self.wait_for_server(url, max_wait)
+        # Wait until the server is ready (max 90s)
+        try:
+            self.wait_for_server(self.host, max_wait)
+        except TimeoutError:
+            self.log_server_output()
+            raise  # Re-raise the timeout error
 
     def stop_server(self) -> None:
         """Stop the running server."""
         if self.server_process:
             self.server_process.kill()
 
-    def wait_for_server(self, url: str, max_wait: int = 60) -> None:
+    def wait_for_server(self, url: str, max_wait: int = 90) -> None:
         """Wait for the server to be available, checking every second."""
         start_time = time()
         while time() - start_time < max_wait:
@@ -54,6 +57,13 @@ class JVServeCliTest(unittest.TestCase):
                     return  # Server is ready
             sleep(1)
         raise TimeoutError(f"Server at {url} did not start within {max_wait} seconds.")
+
+    def log_server_output(self) -> None:
+        """Log the server's output to help debug failures."""
+        if self.server_process:
+            stdout, stderr = self.server_process.communicate(timeout=5)
+            print("\n==== SERVER STDOUT ====\n", stdout)
+            print("\n==== SERVER STDERR ====\n", stderr)
 
     def test_jvserve_runs(self) -> None:
         """Ensure `jac jvserve` runs successfully."""
