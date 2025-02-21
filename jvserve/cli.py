@@ -33,7 +33,7 @@ class JacCmd:
             host: str = "0.0.0.0",
             port: int = 8000,
             loglevel: str = "INFO",
-            rtc: bool = False,
+            workers: int = None,
         ) -> None:
             """Launch the jac application."""
             # set up logging
@@ -104,10 +104,9 @@ class JacCmd:
                 methods=["POST"],
                 dependencies=authenticator,
             )
-            # FastAPI.get().mount("/files", StaticFiles(directory=os.environ.get('JIVAS_FILES_ROOT_PATH','.files')), name="files")
 
             # run the app
-            _run(FastAPI.get(), host=host, port=port, lifespan="on")
+            _run(FastAPI.get(), host=host, port=port, lifespan="on", workers=workers)
 
         @cmd_registry.register
         def jvfileserve(
