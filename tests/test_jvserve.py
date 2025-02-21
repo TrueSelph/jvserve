@@ -6,6 +6,7 @@ import unittest
 from contextlib import suppress
 from time import sleep
 from typing import Optional
+
 import httpx
 
 
@@ -66,7 +67,9 @@ class JVServeCliTest(unittest.TestCase):
         try:
             self.run_jvserve("test.jac")
             res = httpx.post(f"{self.host}/action/walker", json={})
-            self.assertEqual(res.status_code, 403)  # Should be Not Authenticated / Forbidden
+            self.assertEqual(
+                res.status_code, 403
+            )  # Should be Not Authenticated / Forbidden
         finally:
             self.stop_server()
 
@@ -78,7 +81,7 @@ class JVServeCliTest(unittest.TestCase):
         # Add file to the directory
         with open(f"{directory}/test.txt", "w") as f:
             f.write("Hello, World!")
-        
+
         env = os.environ.copy()
         env["COVERAGE_PROCESS_START"] = ".coveragerc"  # Make sure .coveragerc exists
         env["PYTHONPATH"] = os.getcwd()
@@ -103,14 +106,14 @@ class JVServeCliTest(unittest.TestCase):
 
             # Clean up the directory
             os.remove(f"{directory}/test.txt")
-            os.rmdir(directory )
-
+            os.rmdir(directory)
 
     def tearDown(self) -> None:
         """Cleanup after each test."""
         self.stop_server()
         with suppress(FileNotFoundError):
             os.remove("test.jac")
+
 
 if __name__ == "__main__":
     unittest.main()

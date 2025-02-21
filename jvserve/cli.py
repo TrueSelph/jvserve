@@ -33,7 +33,7 @@ class JacCmd:
             host: str = "0.0.0.0",
             port: int = 8000,
             loglevel: str = "INFO",
-            workers: int = None,
+            workers: Optional[int] = None,
         ) -> None:
             """Launch the jac application."""
             # set up logging
