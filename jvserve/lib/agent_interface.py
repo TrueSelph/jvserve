@@ -35,7 +35,7 @@ class AgentInterface:
     PORT = 8000
     ROOT_ID = ""
     TOKEN = ""
-    EXPIRATION = ""
+    EXPIRATION = None
     LOGGER = logging.getLogger(__name__)
 
     @staticmethod
@@ -43,7 +43,42 @@ class AgentInterface:
         walker_name: str, module_name: str, attributes: dict
     ) -> _Jac.Walker:
         """Spawn any walker by name, located in module"""
-        return JacMachine.get().spawn_walker(walker_name, attributes, module_name)
+        # Get the list of modules
+        modules = JacMachine.get().list_modules()
+
+        # Search for the exact module name in the list of modules
+        for mod in modules:
+            if mod.endswith(module_name):
+                module_name = mod
+                break
+
+        try:
+            walker = JacMachine.get().spawn_walker(walker_name, attributes, module_name)
+            return walker
+        except Exception as e:
+            raise ValueError(
+                f"Unable to spawn walker {walker_name} in module {module_name}: {e}"
+            )
+
+    @staticmethod
+    def spawn_node(node_name: str, module_name: str, attributes: dict) -> _Jac.Node:
+        """Spawn any node by name, located in module"""
+        # Get the list of modules
+        modules = JacMachine.get().list_modules()
+
+        # Search for the exact module name in the list of modules
+        for mod in modules:
+            if mod.endswith(module_name):
+                module_name = mod
+                break
+
+        try:
+            node = JacMachine.get().spawn_node(node_name, attributes, module_name)
+            return node
+        except Exception as e:
+            raise ValueError(
+                f"Unable to spawn node {node_name} in module {module_name}: {e}"
+            )
 
     @staticmethod
     async def webhook_exec(key: str, request: Request) -> JSONResponse:
@@ -110,7 +145,7 @@ class AgentInterface:
                     )
 
             except Exception as e:
-                AgentInterface.EXPIRATION = ""
+                AgentInterface.EXPIRATION = None
                 AgentInterface.LOGGER.error(
                     f"an exception occurred: {e}, {traceback.format_exc()}"
                 )
@@ -183,7 +218,7 @@ class AgentInterface:
                 ).response
 
             except Exception as e:
-                AgentInterface.EXPIRATION = ""
+                AgentInterface.EXPIRATION = None
                 AgentInterface.LOGGER.error(
                     f"an exception occurred: {e}, {traceback.format_exc()}"
                 )
@@ -231,11 +266,11 @@ class AgentInterface:
                         "verbose": payload.verbose,
                         "reporting": False,
                     },
-                    module_name="agent.action.interact",
+                    module_name="jivas.agent.action.interact",
                 ),
             ).response
         except Exception as e:
-            AgentInterface.EXPIRATION = ""
+            AgentInterface.EXPIRATION = None
             AgentInterface.LOGGER.error(
                 f"an exception occurred: {e}, {traceback.format_exc()}"
             )
@@ -277,7 +312,7 @@ class AgentInterface:
                 ),
             ).response
         except Exception as e:
-            AgentInterface.EXPIRATION = ""
+            AgentInterface.EXPIRATION = None
             AgentInterface.LOGGER.error(
                 f"an exception occurred: {e}, {traceback.format_exc()}"
             )
@@ -318,11 +353,11 @@ class AgentInterface:
                     return result.get("reports", {})
 
                 if response.status_code == 401:
-                    AgentInterface.EXPIRATION = ""
+                    AgentInterface.EXPIRATION = None
                     return {}
 
             except Exception as e:
-                AgentInterface.EXPIRATION = ""
+                AgentInterface.EXPIRATION = None
                 AgentInterface.LOGGER.error(
                     f"an exception occurred: {e}, {traceback.format_exc()}"
                 )
@@ -362,11 +397,11 @@ class AgentInterface:
                     return result["reports"]
 
                 if response.status_code == 401:
-                    AgentInterface.EXPIRATION = ""
+                    AgentInterface.EXPIRATION = None
                     return {}
 
             except Exception as e:
-                AgentInterface.EXPIRATION = ""
+                AgentInterface.EXPIRATION = None
                 AgentInterface.LOGGER.error(
                     f"an exception occurred: {e}, {traceback.format_exc()}"
                 )
@@ -444,11 +479,7 @@ class AgentInterface:
 
         # if user context still active, return it
         now = int(time.time())
-        if (
-            AgentInterface.EXPIRATION
-            and AgentInterface.EXPIRATION.isdigit()
-            and int(AgentInterface.EXPIRATION) > now
-        ):
+        if AgentInterface.EXPIRATION and AgentInterface.EXPIRATION > now:
             return {
                 "root_id": AgentInterface.ROOT_ID,
                 "token": AgentInterface.TOKEN,
@@ -517,7 +548,7 @@ class AgentInterface:
                     )
 
         except Exception as e:
-            AgentInterface.EXPIRATION = ""
+            AgentInterface.EXPIRATION = None
             AgentInterface.LOGGER.error(
                 f"an exception occurred: {e}, {traceback.format_exc()}"
             )
@@ -609,7 +640,7 @@ class AgentInterface:
                                 )
 
             except Exception as e:
-                AgentInterface.EXPIRATION = ""
+                AgentInterface.EXPIRATION = None
                 AgentInterface.LOGGER.error(
                     f"an exception occurred: {e}, {traceback.format_exc()}"
                 )
