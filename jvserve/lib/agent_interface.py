@@ -376,6 +376,7 @@ class AgentInterface:
     @staticmethod
     def load_context(entry: NodeAnchor | None = None) -> Optional[ExecutionContext]:
         """Load the execution context synchronously."""
+        AgentInterface.get_user_context()
         return AgentInterface.get_jaseci_context(entry, AgentInterface.ROOT_ID)
 
     @staticmethod
