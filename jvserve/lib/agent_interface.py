@@ -6,7 +6,7 @@ import os
 import string
 import time
 import traceback
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import quote, unquote
 
 import aiohttp
@@ -163,7 +163,7 @@ class AgentInterface:
         module_root: str = Form(...),  # noqa: B008
         walker: str = Form(...),  # noqa: B008
         args: Optional[str] = Form(None),  # noqa: B008
-        attachments: Optional[list[UploadFile]] = None,
+        attachments: List[UploadFile] = Form(default_factory=list),  # noqa: B008
     ) -> JSONResponse:
         """Execute a named walker exposed by an action within context; capable of handling JSON or file data depending on request"""
 
@@ -564,11 +564,7 @@ class AgentInterface:
 
         # if user context still active, return it
         now = int(time.time())
-        if (
-            AgentInterface.EXPIRATION
-            and AgentInterface.EXPIRATION.isdigit()
-            and int(AgentInterface.EXPIRATION) > now
-        ):
+        if AgentInterface.EXPIRATION and AgentInterface.EXPIRATION > now:
             return {
                 "root_id": AgentInterface.ROOT_ID,
                 "token": AgentInterface.TOKEN,
