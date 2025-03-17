@@ -1,37 +1,52 @@
+"""
+File interface module with base class for making file handling configurable
+for different storage backends.
+"""
+
+import logging
 import os
 from abc import ABC, abstractmethod
-import logging
 
-
+# Interface type determined by environment variable, defaults to local
 FILE_INTERFACE = os.environ.get("JIVAS_FILE_INTERFACE", "local")
 
 
 class FileInterface(ABC):
+    """Abstract base class defining the interface for file storage operations."""
+
     __root_dir: str = ""
     LOGGER: logging.Logger = logging.getLogger(__name__)
 
     @abstractmethod
     def get_file(self, filename: str) -> bytes | None:
+        """Retrieve a file from storage and return its contents as bytes."""
         pass
 
     @abstractmethod
     def save_file(self, filename: str, content: bytes) -> bool:
+        """Save content to a file in storage."""
         pass
 
     @abstractmethod
     def delete_file(self, filename: str) -> bool:
+        """Delete a file from storage."""
         pass
 
     @abstractmethod
     def get_file_url(self, filename: str) -> str | None:
+        """Get a URL to access the file."""
         pass
 
 
 class LocalFileInterface(FileInterface):
+    """Implementation of FileInterface for local filesystem storage."""
+
     def __init__(self, files_root: str = "") -> None:
+        """Initialize local file interface with root directory."""
         self.__root_dir = files_root
 
     def get_file(self, filename: str) -> bytes | None:
+        """Read and return contents of local file."""
         file_path = os.path.join(self.__root_dir, filename)
         if os.path.exists(file_path):
             with open(file_path, "rb") as f:
@@ -39,6 +54,7 @@ class LocalFileInterface(FileInterface):
         return None
 
     def save_file(self, filename: str, content: bytes) -> bool:
+        """Write content to a local file."""
         file_path = os.path.join(self.__root_dir, filename)
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         with open(file_path, "wb") as f:
@@ -46,6 +62,7 @@ class LocalFileInterface(FileInterface):
         return True
 
     def delete_file(self, filename: str) -> bool:
+        """Delete local file."""
         file_path = os.path.join(self.__root_dir, filename)
         if os.path.exists(file_path):
             os.remove(file_path)
@@ -53,13 +70,16 @@ class LocalFileInterface(FileInterface):
         return False
 
     def get_file_url(self, filename: str) -> str | None:
+        """Get URL for accessing local file via HTTP."""
         file_path = os.path.join(self.__root_dir, filename)
         if os.path.exists(file_path):
-            return f"{os.environ.get('JIVAS_FILES_URL','http://localhost:9000/files')}/{filename}"
+            return f"{os.environ.get('JIVAS_FILES_URL', 'http://localhost:9000/files')}/{filename}"
         return None
 
 
 class S3FileInterface(FileInterface):
+    """Implementation of FileInterface for AWS S3 storage."""
+
     def __init__(
         self,
         bucket_name: str,
@@ -69,6 +89,7 @@ class S3FileInterface(FileInterface):
         endpoint_url: str | None = None,
         files_root: str = ".files",
     ) -> None:
+        """Initialize S3 file interface."""
         import boto3
         from botocore.config import Config
 
@@ -90,6 +111,7 @@ class S3FileInterface(FileInterface):
             )
 
     def get_file(self, filename: str) -> bytes | None:
+        """Get file contents from S3."""
         try:
             file_key = os.path.join(self.__root_dir, filename)
             response = self.s3_client.get_object(Bucket=self.bucket_name, Key=file_key)
@@ -98,6 +120,7 @@ class S3FileInterface(FileInterface):
             return None
 
     def save_file(self, filename: str, content: bytes) -> bool:
+        """Save file to S3 bucket."""
         try:
             file_key = os.path.join(self.__root_dir, filename)
             self.s3_client.put_object(
@@ -108,6 +131,7 @@ class S3FileInterface(FileInterface):
             return False
 
     def delete_file(self, filename: str) -> bool:
+        """Delete file from S3 bucket."""
         try:
             file_key = os.path.join(self.__root_dir, filename)
             self.s3_client.delete_object(Bucket=self.bucket_name, Key=file_key)
@@ -116,6 +140,7 @@ class S3FileInterface(FileInterface):
             return False
 
     def get_file_url(self, filename: str) -> str | None:
+        """Get pre-signed URL for S3 file access."""
         try:
             file_key = os.path.join(self.__root_dir, filename)
             url = self.s3_client.generate_presigned_url(
@@ -128,13 +153,15 @@ class S3FileInterface(FileInterface):
             return None
 
 
+file_interface: FileInterface
+
 if FILE_INTERFACE == "s3":
     file_interface = S3FileInterface(
         bucket_name=os.environ.get("JIVAS_S3_BUCKET_NAME", ""),
         region_name=os.environ.get("JIVAS_S3_REGION_NAME", "us-east-1"),
         aws_access_key_id=os.environ.get("JIVAS_S3_ACCESS_KEY_ID", ""),
         aws_secret_access_key=os.environ.get("JIVAS_S3_SECRET_ACCESS_KEY", ""),
-        endpoint_url=os.environ.get("JIVAS_S3_ENDPOINT_URL", None),
+        endpoint_url=os.environ.get("JIVAS_S3_ENDPOINT_URL"),
         files_root=os.environ.get("JIVAS_FILES_ROOT_PATH", ".files"),
     )
 else:

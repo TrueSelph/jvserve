@@ -5,29 +5,29 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from jvserve.lib.file_interface import (
+    FileInterface,
     LocalFileInterface,
     S3FileInterface,
-    FileInterface,
 )
 
 
 class TestFileInterface(unittest.TestCase):
     """Test cases for FileInterface implementations"""
 
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up test environment"""
         self.test_filename = "test_file.txt"
         self.test_content = b"test content"
         self.test_root = ".test_files"
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         """Clean up test environment"""
         if os.path.exists(self.test_root):
             for file in os.listdir(self.test_root):
                 os.remove(os.path.join(self.test_root, file))
             os.rmdir(self.test_root)
 
-    def test_local_file_interface(self):
+    def test_local_file_interface(self) -> None:
         """Test LocalFileInterface implementation"""
         interface = LocalFileInterface(self.test_root)
 
@@ -48,7 +48,7 @@ class TestFileInterface(unittest.TestCase):
         self.assertFalse(interface.delete_file("nonexistent.txt"))
 
     @patch("boto3.client")
-    def test_s3_file_interface(self, mock_boto3_client):
+    def test_s3_file_interface(self, mock_boto3_client: MagicMock) -> None:
         """Test S3FileInterface implementation"""
         mock_s3 = MagicMock()
         mock_boto3_client.return_value = mock_s3
@@ -56,7 +56,7 @@ class TestFileInterface(unittest.TestCase):
         interface = S3FileInterface(
             bucket_name="test-bucket",
             aws_access_key_id="test-key",
-            aws_secret_access_key="test-secret",
+            aws_secret_access_key="test-secret",  # pragma: allowlist secret
             region_name="test-region",
         )
 
@@ -93,13 +93,15 @@ class TestFileInterface(unittest.TestCase):
         self.assertIsNone(interface.get_file_url(self.test_filename))
 
     @patch("boto3.client")
-    def test_s3_file_interface_missing_credentials(self, mock_boto3_client):
+    def test_s3_file_interface_missing_credentials(
+        self, mock_boto3_client: MagicMock
+    ) -> None:
         """Test S3FileInterface with missing credentials"""
         # Mock logger before creating interface
         mock_logger = MagicMock()
         FileInterface.LOGGER = mock_logger
 
-        interface = S3FileInterface(
+        S3FileInterface(
             bucket_name="test-bucket",
             aws_access_key_id="",
             aws_secret_access_key="",

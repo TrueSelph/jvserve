@@ -116,8 +116,8 @@ class JacCmd:
             """Launch the file server."""
             # load FastAPI
             from fastapi import FastAPI
-            from fastapi.staticfiles import StaticFiles
             from fastapi.middleware.cors import CORSMiddleware
+            from fastapi.staticfiles import StaticFiles
 
             if directory:
                 os.environ["JIVAS_FILES_ROOT_PATH"] = directory
