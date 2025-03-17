@@ -117,6 +117,7 @@ class JacCmd:
             # load FastAPI
             from fastapi import FastAPI
             from fastapi.staticfiles import StaticFiles
+            from fastapi.middleware.cors import CORSMiddleware
 
             if directory:
                 os.environ["JIVAS_FILES_ROOT_PATH"] = directory
@@ -126,6 +127,24 @@ class JacCmd:
 
             # Setup custom routes
             app = FastAPI()
+
+            # Add CORS middleware
+            app.add_middleware(
+                CORSMiddleware,
+                allow_origins=["*"],
+                allow_credentials=True,
+                allow_methods=["*"],
+                allow_headers=["*"],
+            )
+
+            app.mount(
+                "/files",
+                StaticFiles(
+                    directory=os.environ.get("JIVAS_FILES_ROOT_PATH", ".files")
+                ),
+                name="files",
+            )
+
             app.mount(
                 "/files",
                 StaticFiles(
