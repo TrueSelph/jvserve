@@ -44,6 +44,7 @@ setup(
         "requests>=2.32.3",
         "aiohttp>=3.10.10",
         "schedule>=1.2.2",
+        "boto3>=1.37.10",
     ],
     extras_require={
         "dev": [
