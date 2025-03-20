@@ -70,11 +70,6 @@ jobs:
       - name: Build package
         run: python setup.py sdist bdist_wheel
 
-      - name: Changelog CI
-        uses: saadmk11/changelog-ci@v1.1.2
-        with:
-          release_version : ${{ needs.check-version.outputs.new_version }}
-
       - name: Publish to PyPI
         env:
           TWINE_USERNAME: __token__
@@ -86,4 +81,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create v${{ needs.check-version.outputs.new_version }} dist/* --title "Release v${{ needs.check-version.outputs.new_version }}" --notes "Automated release for version v${{ needs.check-version.outputs.new_version }}."
+          gh release create v${{ needs.check-version.outputs.new_version }} dist/* --title "Release v${{ needs.check-version.outputs.new_version }}" --notes "Automated release for version v${{ needs.check-version.outputs.new_version }}." --generate-notes
