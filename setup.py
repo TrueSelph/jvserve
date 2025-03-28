@@ -39,7 +39,7 @@ setup(
     package_data={"jvserve": []},
     python_requires=">=3.12.0",
     install_requires=[
-        "jac-cloud>=0.1.19",
+        "jac-cloud==0.1.20",
         "pyaml>=25.1.0",
         "requests>=2.32.3",
         "aiohttp>=3.10.10",
