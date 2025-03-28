@@ -9,6 +9,7 @@ from abc import ABC, abstractmethod
 
 # Interface type determined by environment variable, defaults to local
 FILE_INTERFACE = os.environ.get("JIVAS_FILE_INTERFACE", "local")
+DEFAULT_FILES_ROOT = os.environ.get("JIVAS_FILES_ROOT_PATH", ".files")
 
 
 class FileInterface(ABC):
@@ -156,9 +157,7 @@ class S3FileInterface(FileInterface):
 file_interface: FileInterface
 
 
-def get_file_interface(
-    files_root: str = os.environ.get("JIVAS_FILES_ROOT_PATH", ".files")
-) -> FileInterface:
+def get_file_interface(files_root: str = DEFAULT_FILES_ROOT) -> FileInterface:
     """Returns a FileInterface instance based on the configured FILE_INTERFACE."""
 
     if FILE_INTERFACE == "s3":
