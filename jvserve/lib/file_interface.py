@@ -9,6 +9,7 @@ from abc import ABC, abstractmethod
 
 # Interface type determined by environment variable, defaults to local
 FILE_INTERFACE = os.environ.get("JIVAS_FILE_INTERFACE", "local")
+DEFAULT_FILES_ROOT = os.environ.get("JIVAS_FILES_ROOT_PATH", ".files")
 
 
 class FileInterface(ABC):
@@ -155,16 +156,21 @@ class S3FileInterface(FileInterface):
 
 file_interface: FileInterface
 
-if FILE_INTERFACE == "s3":
-    file_interface = S3FileInterface(
-        bucket_name=os.environ.get("JIVAS_S3_BUCKET_NAME", ""),
-        region_name=os.environ.get("JIVAS_S3_REGION_NAME", "us-east-1"),
-        aws_access_key_id=os.environ.get("JIVAS_S3_ACCESS_KEY_ID", ""),
-        aws_secret_access_key=os.environ.get("JIVAS_S3_SECRET_ACCESS_KEY", ""),
-        endpoint_url=os.environ.get("JIVAS_S3_ENDPOINT_URL"),
-        files_root=os.environ.get("JIVAS_FILES_ROOT_PATH", ".files"),
-    )
-else:
-    file_interface = LocalFileInterface(
-        files_root=os.environ.get("JIVAS_FILES_ROOT_PATH", ".files")
-    )
+
+def get_file_interface(files_root: str = DEFAULT_FILES_ROOT) -> FileInterface:
+    """Returns a FileInterface instance based on the configured FILE_INTERFACE."""
+
+    if FILE_INTERFACE == "s3":
+        return S3FileInterface(
+            bucket_name=os.environ.get("JIVAS_S3_BUCKET_NAME", ""),
+            region_name=os.environ.get("JIVAS_S3_REGION_NAME", "us-east-1"),
+            aws_access_key_id=os.environ.get("JIVAS_S3_ACCESS_KEY_ID", ""),
+            aws_secret_access_key=os.environ.get("JIVAS_S3_SECRET_ACCESS_KEY", ""),
+            endpoint_url=os.environ.get("JIVAS_S3_ENDPOINT_URL"),
+            files_root=files_root,
+        )
+    else:
+        return LocalFileInterface(files_root=files_root)
+
+
+file_interface = get_file_interface()
