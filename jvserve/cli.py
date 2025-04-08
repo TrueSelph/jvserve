@@ -5,8 +5,8 @@ import os
 import time
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
-from dotenv import load_dotenv
 
+from dotenv import load_dotenv
 from jac_cloud.jaseci.security import authenticator
 from jaclang.cli.cmdreg import cmd_registry
 from jaclang.plugin.default import hookimpl
