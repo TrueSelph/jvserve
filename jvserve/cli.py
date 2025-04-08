@@ -6,6 +6,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
 
+from dotenv import load_dotenv
 from jac_cloud.jaseci.security import authenticator
 from jaclang.cli.cmdreg import cmd_registry
 from jaclang.plugin.default import hookimpl
@@ -16,6 +17,8 @@ from uvicorn import run as _run
 from jvserve.lib.agent_interface import AgentInterface
 from jvserve.lib.agent_pulse import AgentPulse
 from jvserve.lib.jvlogger import JVLogger
+
+load_dotenv(".env")
 
 
 class JacCmd:
