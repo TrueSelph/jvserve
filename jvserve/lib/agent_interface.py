@@ -23,8 +23,8 @@ from jac_cloud.core.context import (
 )
 from jac_cloud.core.memory import MongoDB
 from jac_cloud.plugin.jaseci import NodeAnchor
-from jaclang.plugin.feature import JacFeature as _Jac
-from jaclang.runtimelib.machine import JacMachine
+from jaclang import JacFeature as _Jac
+from jaclang.runtimelib.feature import JacMachine
 from pydantic import BaseModel
 
 

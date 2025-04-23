@@ -4,14 +4,14 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
+from pickle import load
 from typing import AsyncIterator, Optional
 
 from dotenv import load_dotenv
 from jac_cloud.jaseci.security import authenticator
 from jaclang.cli.cmdreg import cmd_registry
-from jaclang.plugin.default import hookimpl
-from jaclang.runtimelib.context import ExecutionContext
-from jaclang.runtimelib.machine import JacMachine
+from jaclang.runtimelib.feature import hookimpl
+from jaclang.runtimelib.machine import JacMachineState
 from uvicorn import run as _run
 
 from jvserve.lib.agent_interface import AgentInterface
@@ -38,33 +38,41 @@ class JacCmd:
             workers: Optional[int] = None,
         ) -> None:
             """Launch the jac application."""
-            from jaclang import jac_import
-
-            # set up logging
-            JVLogger.setup_logging(level=loglevel)
-            logger = logging.getLogger(__name__)
-
-            # load FastAPI
             from jac_cloud import FastAPI
-
-            FastAPI.enable()
-
-            # load the JAC application
-            jctx = ExecutionContext.create()
+            from jaclang import JacFeature as Jac
 
             base, mod = os.path.split(filename)
             base = base if base else "./"
             mod = mod[:-4]
 
+            FastAPI.enable()
+            mach = JacMachineState(base)
+
+            # set up logging
+            JVLogger.setup_logging(level=loglevel)
+            logger = logging.getLogger(__name__)
+
             if filename.endswith(".jac"):
                 start_time = time.time()
-                jac_import(
+                Jac.jac_import(
+                    mach=mach,
                     target=mod,
                     base_path=base,
-                    cachable=True,
                     override_name="__main__",
                 )
                 logger.info(f"Loading took {time.time() - start_time} seconds")
+            elif filename.endswith(".jir"):
+                with open(filename, "rb") as f:
+                    Jac.attach_program(mach, load(f))
+                    Jac.jac_import(
+                        mach=mach,
+                        target=mod,
+                        base_path=base,
+                        override_name="__main__",
+                    )
+            else:
+                mach.exec_ctx.close()
+                raise ValueError("Not a valid file!\nOnly supports `.jac` and `.jir`")
 
             AgentInterface.HOST = host
             AgentInterface.PORT = port
@@ -78,9 +86,7 @@ class JacCmd:
                 # Perform initialization actions here
                 logger.info("JIVAS is shutting down...")
                 AgentPulse.stop()
-                # await AgentRTC.on_shutdown()
-                jctx.close()
-                JacMachine.detach()
+                mach.exec_ctx.close()
 
             app_lifespan = FastAPI.get().router.lifespan_context
 
@@ -110,7 +116,7 @@ class JacCmd:
             )
 
             # run the app
-            _run(FastAPI.get(), host=host, port=port, lifespan="on", workers=workers)
+            FastAPI.start(host=host, port=port, lifespan="on", workers=workers)
 
         @cmd_registry.register
         def jvfileserve(
