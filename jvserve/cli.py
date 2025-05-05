@@ -10,8 +10,7 @@ from typing import AsyncIterator, Optional
 from dotenv import load_dotenv
 from jac_cloud.jaseci.security import authenticator
 from jaclang.cli.cmdreg import cmd_registry
-from jaclang.runtimelib.feature import hookimpl
-from jaclang.runtimelib.machine import JacMachineState
+from jaclang.runtimelib.machine import JacMachineState, hookimpl
 from uvicorn import run as _run
 
 from jvserve.lib.agent_interface import AgentInterface
