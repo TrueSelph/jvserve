@@ -81,6 +81,24 @@ class AgentInterface:
             )
 
     @staticmethod
+    def load_module(module_name: str) -> None:
+        """Load any module by name"""
+        # Get the list of modules
+        modules = JacMachine.get().list_modules()
+
+        # Search for the exact module name in the list of modules
+        for mod in modules:
+            if mod.endswith(module_name):
+                module_name = mod
+                break
+
+        try:
+            module = JacMachine.get().load_module(module_name)
+            return module
+        except Exception as e:
+            raise ValueError(f"Unable to load module {module_name}: {e}")
+
+    @staticmethod
     async def webhook_exec(key: str, request: Request) -> JSONResponse:
         """
         Execute a walker by name within context
