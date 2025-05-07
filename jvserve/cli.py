@@ -38,7 +38,7 @@ class JacCmd:
         ) -> None:
             """Launch the jac application."""
             from jac_cloud import FastAPI
-            from jaclang import JacFeature as Jac
+            from jaclang import JacMachine as Jac
 
             base, mod = os.path.split(filename)
             base = base if base else "./"
