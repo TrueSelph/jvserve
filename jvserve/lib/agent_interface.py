@@ -13,7 +13,7 @@ from urllib.parse import quote, unquote
 
 import aiohttp
 import requests
-from fastapi import Form, Request, UploadFile
+from fastapi import File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 from jac_cloud.core.architype import AnchorState, Permission, Root
 from jac_cloud.core.context import (
@@ -162,12 +162,11 @@ class AgentInterface:
 
     @staticmethod
     async def action_walker_exec(
-        request: Request,
         agent_id: str = Form(...),  # noqa: B008
         module_root: str = Form(...),  # noqa: B008
         walker: str = Form(...),  # noqa: B008
         args: Optional[str] = Form(None),  # noqa: B008
-        attachments: List[UploadFile] = Form(default_factory=list),  # noqa: B008
+        attachments: List[UploadFile] = File(default_factory=list),  # noqa: B008
     ) -> JSONResponse:
         """Execute a named walker exposed by an action within context; capable of handling JSON or file data depending on request"""
 
@@ -237,11 +236,13 @@ class AgentInterface:
         """Payload for interacting with the agent."""
 
         agent_id: str
-        utterance: str
-        session_id: str
-        tts: bool
-        verbose: bool
-        streaming: bool
+        utterance: Optional[str] = None
+        channel: Optional[str] = None
+        session_id: Optional[str] = None
+        tts: Optional[bool] = None
+        verbose: Optional[bool] = None
+        data: Optional[list[dict]] = None
+        streaming: Optional[bool] = None
 
     @staticmethod
     def interact(payload: InteractPayload) -> dict:
@@ -267,11 +268,13 @@ class AgentInterface:
                     walker_name="interact",
                     attributes={
                         "agent_id": payload.agent_id,
-                        "utterance": payload.utterance,
-                        "session_id": session_id,
-                        "tts": payload.tts,
-                        "verbose": payload.verbose,
-                        "streaming": payload.streaming,
+                        "utterance": payload.utterance or "",
+                        "channel": payload.channel or "",
+                        "session_id": session_id or "",
+                        "tts": payload.tts or False,
+                        "verbose": payload.verbose or False,
+                        "data": payload.data or [],
+                        "streaming": payload.streaming or False,
                         "reporting": False,
                     },
                     module_name="jivas.agent.action.interact",
@@ -425,8 +428,14 @@ class AgentInterface:
                 headers = {}
                 json = {
                     "agent_id": payload.agent_id,
-                    "utterance": payload.utterance,
-                    "session_id": session_id,
+                    "utterance": payload.utterance or "",
+                    "channel": payload.channel or "",
+                    "session_id": session_id or "",
+                    "tts": payload.tts or False,
+                    "verbose": payload.verbose or False,
+                    "data": payload.data or [],
+                    "streaming": payload.streaming or False,
+                    "reporting": False,
                 }
                 headers["Authorization"] = "Bearer " + AgentInterface.TOKEN
 
