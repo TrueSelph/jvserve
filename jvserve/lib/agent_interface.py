@@ -1,11 +1,13 @@
 """Agent Interface class and methods for interaction with Jivas."""
 
+import inspect
 import json
 import logging
 import os
 import string
 import time
 import traceback
+import types
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote, unquote
 
@@ -26,6 +28,8 @@ from jac_cloud.plugin.jaseci import NodeAnchor
 from jaclang.plugin.feature import JacFeature as _Jac
 from jaclang.runtimelib.machine import JacMachine
 from pydantic import BaseModel
+from fastapi.responses import StreamingResponse
+from asyncio import sleep
 
 
 class AgentInterface:
@@ -237,6 +241,7 @@ class AgentInterface:
         session_id: str
         tts: bool
         verbose: bool
+        streaming: bool
 
     @staticmethod
     def interact(payload: InteractPayload) -> dict:
@@ -253,6 +258,8 @@ class AgentInterface:
             f"attempting to interact with agent {payload.agent_id} with user root {ctx.root}..."
         )
 
+        print("getting the interact response")
+
         try:
             response = _Jac.spawn_call(
                 ctx.entry_node.architype,
@@ -264,11 +271,45 @@ class AgentInterface:
                         "session_id": session_id,
                         "tts": payload.tts,
                         "verbose": payload.verbose,
+                        "streaming": payload.streaming,
                         "reporting": False,
                     },
                     module_name="jivas.agent.action.interact",
                 ),
-            ).response
+            )
+
+            if payload.streaming:
+                print("generator is ", type(response))
+
+                full_text = ""
+
+                async def llm_text_generator():
+                    nonlocal full_text
+                    interaction_node = response.interaction_node
+
+                    for chunk in response.generator:
+                        full_text += chunk.content
+                        await sleep(0.05)
+                        yield f"data: {json.dumps({"id": interaction_node.id, "content": chunk.content, "type": chunk.type, "metadata": chunk.response_metadata })}\n"
+
+                    print("the full text is ", full_text)
+
+                    print("interaction_node", interaction_node)
+                    print("interaction_node", interaction_node)
+
+                    interaction_node.set_text_message(message=full_text)
+                    interaction_node.close()
+                    interaction_node.update(data=interaction_node.export())
+
+                    print("closed interaction node: ", interaction_node.id)
+                    print("interaction_node after update: ", interaction_node)
+
+                return StreamingResponse(
+                    llm_text_generator(), media_type="text/event-stream"
+                )
+            else:
+                response = response.response
+
         except Exception as e:
             AgentInterface.EXPIRATION = None
             AgentInterface.LOGGER.error(
