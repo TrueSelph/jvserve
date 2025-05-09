@@ -237,7 +237,7 @@ class AgentInterface:
         session_id: Optional[str] = None
         tts: Optional[bool] = None
         verbose: Optional[bool] = None
-        data: Optional[dict] = None
+        data: Optional[list[dict]] = None
         streaming: Optional[bool] = None
 
     @staticmethod
@@ -267,7 +267,7 @@ class AgentInterface:
                         "session_id": session_id or "",
                         "tts": payload.tts or False,
                         "verbose": payload.verbose or False,
-                        "data": payload.data or {},
+                        "data": payload.data or [],
                         "streaming": payload.streaming or False,
                         "reporting": False,
                     },
@@ -394,7 +394,7 @@ class AgentInterface:
                     "session_id": session_id or "",
                     "tts": payload.tts or False,
                     "verbose": payload.verbose or False,
-                    "data": payload.data or {},
+                    "data": payload.data or [],
                     "streaming": payload.streaming or False,
                     "reporting": False,
                 }
