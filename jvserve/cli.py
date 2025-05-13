@@ -5,36 +5,35 @@ import os
 import time
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
-from jac_cloud.plugin.jaseci import NodeAnchor
-import requests
 
 from dotenv import load_dotenv
+from fastapi.responses import FileResponse, StreamingResponse
 from jac_cloud.jaseci.security import authenticator
+from jac_cloud.plugin.jaseci import NodeAnchor
 from jaclang.cli.cmdreg import cmd_registry
 from jaclang.plugin.default import hookimpl
 from jaclang.runtimelib.context import ExecutionContext
 from jaclang.runtimelib.machine import JacMachine
-from starlette.responses import StreamingResponse
 from uvicorn import run as _run
 
 from jvserve.lib.agent_interface import AgentInterface
 from jvserve.lib.agent_pulse import AgentPulse
-from jvserve.lib.jvlogger import JVLogger
 from jvserve.lib.file_interface import (
-    file_interface,
     DEFAULT_FILES_ROOT,
     FILE_INTERFACE,
+    file_interface,
 )
+from jvserve.lib.jvlogger import JVLogger
 
 load_dotenv(".env")
 
 
-def serve_proxied_file(file_path: str):
+def serve_proxied_file(file_path: str) -> FileResponse | StreamingResponse:
+    """Serve a proxied file from a remote or local URL."""
     import mimetypes
+
     import requests
-    from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse
     from fastapi import HTTPException
-    from fastapi.responses import RedirectResponse
 
     if FILE_INTERFACE == "local":
         return FileResponse(path=os.path.join(DEFAULT_FILES_ROOT, file_path))
@@ -212,11 +211,15 @@ class JacCmd:
             if FILE_INTERFACE == "s3":
 
                 @app.get("/files/{file_path:path}")
-                async def serve_file(file_path: str):
+                async def serve_file(
+                    file_path: str,
+                ) -> FileResponse | StreamingResponse:
                     return serve_proxied_file(file_path)
 
             @app.get("/f/{file_id:path}")
-            async def get_proxied_file(file_id: str):
+            async def get_proxied_file(
+                file_id: str,
+            ) -> FileResponse | StreamingResponse:
                 from bson import ObjectId
                 from fastapi import HTTPException
 
@@ -230,7 +233,7 @@ class JacCmd:
                 if file_details:
                     return serve_proxied_file(file_details["path"])
 
-                    raise HTTPException(status_code=404, detail="File not found")
+                raise HTTPException(status_code=404, detail="File not found")
 
             # run the app
             _run(app, host=host, port=port)
