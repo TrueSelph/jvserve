@@ -6,6 +6,9 @@ for different storage backends.
 import logging
 import os
 from abc import ABC, abstractmethod
+from dotenv import load_dotenv
+
+load_dotenv(".env")
 
 # Interface type determined by environment variable, defaults to local
 FILE_INTERFACE = os.environ.get("JIVAS_FILE_INTERFACE", "local")

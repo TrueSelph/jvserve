@@ -5,6 +5,8 @@ import os
 import time
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
+from jac_cloud.plugin.jaseci import NodeAnchor
+import requests
 
 from dotenv import load_dotenv
 from jac_cloud.jaseci.security import authenticator
@@ -12,13 +14,71 @@ from jaclang.cli.cmdreg import cmd_registry
 from jaclang.plugin.default import hookimpl
 from jaclang.runtimelib.context import ExecutionContext
 from jaclang.runtimelib.machine import JacMachine
+from starlette.responses import StreamingResponse
 from uvicorn import run as _run
 
 from jvserve.lib.agent_interface import AgentInterface
 from jvserve.lib.agent_pulse import AgentPulse
 from jvserve.lib.jvlogger import JVLogger
+from jvserve.lib.file_interface import (
+    file_interface,
+    DEFAULT_FILES_ROOT,
+    FILE_INTERFACE,
+)
 
 load_dotenv(".env")
+
+
+def serve_proxied_file(file_path: str):
+    import mimetypes
+    import requests
+    from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse
+    from fastapi import HTTPException
+    from fastapi.responses import RedirectResponse
+
+    if FILE_INTERFACE == "local":
+        return FileResponse(path=os.path.join(DEFAULT_FILES_ROOT, file_path))
+
+    file_url = file_interface.get_file_url(file_path)
+
+    if file_url and ("localhost" in file_url or "127.0.0.1" in file_url):
+        # prevent recusive calls when env vars are not detected
+        raise HTTPException(status_code=500, detail="Environment not set up correctly")
+
+    if not file_url:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    file_extension = os.path.splitext(file_path)[1].lower()
+
+    # List of extensions to serve directly
+    direct_serve_extensions = [
+        ".pdf",
+        ".html",
+        ".txt",
+        ".js",
+        ".css",
+        ".json",
+        ".xml",
+        ".svg",
+        ".csv",
+        ".ico",
+    ]
+
+    if file_extension in direct_serve_extensions:
+        file_response = requests.get(file_url)
+        file_response.raise_for_status()  # Raise HTTPError for bad responses (4XX or 5XX)
+
+        mime_type = mimetypes.guess_type(file_path)[0] or "application/octet-stream"
+
+        return StreamingResponse(iter([file_response.content]), media_type=mime_type)
+
+    file_response = requests.get(file_url, stream=True)
+    file_response.raise_for_status()
+
+    return StreamingResponse(
+        file_response.iter_content(chunk_size=1024),
+        media_type="application/octet-stream",
+    )
 
 
 class JacCmd:
@@ -122,12 +182,6 @@ class JacCmd:
             from fastapi.middleware.cors import CORSMiddleware
             from fastapi.staticfiles import StaticFiles
 
-            if directory:
-                os.environ["JIVAS_FILES_ROOT_PATH"] = directory
-
-            if not os.path.exists(directory):
-                os.makedirs(directory)
-
             # Setup custom routes
             app = FastAPI()
 
@@ -140,21 +194,43 @@ class JacCmd:
                 allow_headers=["*"],
             )
 
-            app.mount(
-                "/files",
-                StaticFiles(
-                    directory=os.environ.get("JIVAS_FILES_ROOT_PATH", ".files")
-                ),
-                name="files",
-            )
+            if FILE_INTERFACE == "local":
+                if directory:
+                    os.environ["JIVAS_FILES_ROOT_PATH"] = directory
 
-            app.mount(
-                "/files",
-                StaticFiles(
-                    directory=os.environ.get("JIVAS_FILES_ROOT_PATH", ".files")
-                ),
-                name="files",
-            )
+                if not os.path.exists(directory):
+                    os.makedirs(directory)
+
+                app.mount(
+                    "/files",
+                    StaticFiles(
+                        directory=os.environ.get("JIVAS_FILES_ROOT_PATH", ".files")
+                    ),
+                    name="files",
+                )
+
+            if FILE_INTERFACE == "s3":
+
+                @app.get("/files/{file_path:path}")
+                async def serve_file(file_path: str):
+                    return serve_proxied_file(file_path)
+
+            @app.get("/f/{file_id:path}")
+            async def get_proxied_file(file_id: str):
+                from bson import ObjectId
+                from fastapi import HTTPException
+
+                params = file_id.split("/")
+                object_id = params[0]
+
+                # mongo db collection
+                collection = NodeAnchor.Collection.get_collection("url_proxies")
+                file_details = collection.find_one({"_id": ObjectId(object_id)})
+
+                if file_details:
+                    return serve_proxied_file(file_details["path"])
+
+                    raise HTTPException(status_code=404, detail="File not found")
 
             # run the app
             _run(app, host=host, port=port)
