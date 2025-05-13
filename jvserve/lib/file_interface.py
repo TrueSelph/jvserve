@@ -7,6 +7,10 @@ import logging
 import os
 from abc import ABC, abstractmethod
 
+from dotenv import load_dotenv
+
+load_dotenv(".env")
+
 # Interface type determined by environment variable, defaults to local
 FILE_INTERFACE = os.environ.get("JIVAS_FILE_INTERFACE", "local")
 DEFAULT_FILES_ROOT = os.environ.get("JIVAS_FILES_ROOT_PATH", ".files")
