@@ -281,34 +281,41 @@ class AgentInterface:
                 ),
             )
 
+            ctx.close()
+
             if payload.streaming:
-                print("generator is ", type(response))
+                # print("generator is ", type(response))
+                # ctx.close()
 
-                full_text = ""
-
-                async def llm_text_generator():
-                    nonlocal full_text
-                    interaction_node = response.interaction_node
+                async def llm_text_generator(ctx, interaction_node):
+                    full_text = ""
 
                     for chunk in response.generator:
                         full_text += chunk.content
                         await sleep(0.05)
                         yield f"data: {json.dumps({"id": interaction_node.id, "content": chunk.content, "type": chunk.type, "metadata": chunk.response_metadata })}\n"
 
-                    print("the full text is ", full_text)
-
-                    print("interaction_node", interaction_node)
-                    print("interaction_node", interaction_node)
-
+                    ctx = AgentInterface.load_context()
                     interaction_node.set_text_message(message=full_text)
-                    interaction_node.close()
-                    interaction_node.update(data=interaction_node.export())
 
-                    print("closed interaction node: ", interaction_node.id)
-                    print("interaction_node after update: ", interaction_node)
+                    _Jac.spawn_call(
+                        NodeAnchor.ref(interaction_node.id).architype,
+                        AgentInterface.spawn_walker(
+                            walker_name="update_interaction",
+                            attributes={
+                                "interaction_data": interaction_node.export(),
+                            },
+                            module_name="jivas.agent.action.update_interaction",
+                        ),
+                    )
+                    ctx.close()
+
+                    # print("closed interaction node: ", interaction_node.architype)
+                    # print("interaction_node after update: ", interaction_node)
 
                 return StreamingResponse(
-                    llm_text_generator(), media_type="text/event-stream"
+                    llm_text_generator(ctx, response.interaction_node),
+                    media_type="text/event-stream",
                 )
             else:
                 response = response.response
@@ -319,7 +326,6 @@ class AgentInterface:
                 f"an exception occurred: {e}, {traceback.format_exc()}"
             )
 
-        ctx.close()
         return response if response else {}
 
     @staticmethod
