@@ -129,6 +129,7 @@ class AgentInterface:
                     AgentInterface.spawn_walker(
                         walker_name=walker,
                         attributes={
+                            "headers": request.headers,
                             "agent_id": agent_id,
                             "params": params,
                             "reporting": False,
