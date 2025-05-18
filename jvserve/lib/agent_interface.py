@@ -6,13 +6,14 @@ import os
 import string
 import time
 import traceback
-from typing import Any, Dict, List, Optional
+from asyncio import sleep
+from typing import Any, AsyncGenerator, Dict, Iterator, List, Optional
 from urllib.parse import quote, unquote
 
 import aiohttp
 import requests
 from fastapi import File, Form, Request, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from jac_cloud.core.architype import AnchorState, Permission, Root
 from jac_cloud.core.context import (
     JASECI_CONTEXT,
@@ -244,7 +245,6 @@ class AgentInterface:
     @staticmethod
     def interact(payload: InteractPayload) -> dict:
         """Interact with the agent."""
-
         response = None
         ctx = AgentInterface.load_context()
         session_id = payload.session_id if payload.session_id else ""
@@ -274,15 +274,103 @@ class AgentInterface:
                     },
                     module_name="jivas.agent.action.interact",
                 ),
-            ).response
+            )
+
+            if payload.streaming:
+                # since streaming occurs asynchronously, we'll need to close the context for writebacks here
+                # at this point of closure, there will be an open interaction_node without a response
+                # our job hereafter is to stream to completion and then update and close this interaction_node with the final result
+
+                ctx.close()
+                if (
+                    response is not None
+                    and hasattr(response, "generator")
+                    and hasattr(response, "interaction_node")
+                ):
+
+                    interaction_node = response.interaction_node
+
+                    async def generate(
+                        generator: Iterator,
+                    ) -> AsyncGenerator[str, None]:
+                        """
+                        Asynchronously yield data chunks from a response generator in Server-Sent Events (SSE) format.
+
+                        Accumulates the full text content and yields each chunk as a JSON-encoded SSE message.
+                        After all chunks are processed, updates the interaction node with the complete generated text and triggers an update in the graph context.
+
+                        Yields:
+                            str: A JSON-encoded string representing the current chunk of data in SSE format.
+                        """
+                        full_text = ""
+                        total_tokens = 0
+                        try:
+                            for chunk in generator:
+                                full_text += chunk.content
+                                total_tokens += 1  # each chunk is a token, let's tally
+                                await sleep(0.025)
+                                yield (
+                                    "data: "
+                                    + json.dumps(
+                                        {
+                                            "id": interaction_node.id,
+                                            "content": chunk.content,
+                                            "session_id": interaction_node.response.get(
+                                                "session_id"
+                                            ),
+                                            "type": chunk.type,
+                                            "metadata": chunk.response_metadata,
+                                        }
+                                    )
+                                    + "\n\n"
+                                )
+                            # Update the interaction node with the fully generated text
+                            actx = await AgentInterface.load_context_async()
+                            try:
+                                interaction_node.set_text_message(message=full_text)
+                                interaction_node.add_tokens(total_tokens)
+                                _Jac.spawn_call(
+                                    NodeAnchor.ref(interaction_node.id).architype,
+                                    AgentInterface.spawn_walker(
+                                        walker_name="update_interaction",
+                                        attributes={
+                                            "interaction_data": interaction_node.export(),
+                                        },
+                                        module_name="jivas.agent.action.update_interaction",
+                                    ),
+                                )
+                            finally:
+                                if actx:
+                                    actx.close()
+
+                        except Exception as e:
+                            AgentInterface.LOGGER.error(
+                                f"Exception in streaming generator: {e}, {traceback.format_exc()}"
+                            )
+
+                    return StreamingResponse(
+                        generate(response.generator),
+                        media_type="text/event-stream",
+                    )
+
+                else:
+                    AgentInterface.LOGGER.error(
+                        "Response is None or missing required attributes for streaming."
+                    )
+                    return {}
+
+            else:
+                response = response.response
+                ctx.close()
+                return response if response else {}
+
         except Exception as e:
             AgentInterface.EXPIRATION = None
             AgentInterface.LOGGER.error(
                 f"an exception occurred: {e}, {traceback.format_exc()}"
             )
-
-        ctx.close()
-        return response if response else {}
+            ctx.close()
+            return {}
 
     @staticmethod
     def pulse(action_label: str, agent_id: str = "") -> dict:
