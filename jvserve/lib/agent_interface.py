@@ -303,9 +303,11 @@ class AgentInterface:
                             str: A JSON-encoded string representing the current chunk of data in SSE format.
                         """
                         full_text = ""
+                        total_tokens = 0
                         try:
                             for chunk in generator:
                                 full_text += chunk.content
+                                total_tokens += 1  # each chunk is a token, let's tally
                                 await sleep(0.025)
                                 yield (
                                     "data: "
@@ -326,6 +328,7 @@ class AgentInterface:
                             actx = await AgentInterface.load_context_async()
                             try:
                                 interaction_node.set_text_message(message=full_text)
+                                interaction_node.add_tokens(total_tokens)
                                 _Jac.spawn_call(
                                     NodeAnchor.ref(interaction_node.id).architype,
                                     AgentInterface.spawn_walker(
