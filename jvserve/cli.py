@@ -14,6 +14,7 @@ from jaclang.cli.cmdreg import cmd_registry
 from jaclang.plugin.default import hookimpl
 from jaclang.runtimelib.context import ExecutionContext
 from jaclang.runtimelib.machine import JacMachine
+from requests import Response
 from uvicorn import run as _run
 
 from jvserve.lib.agent_interface import AgentInterface
@@ -210,16 +211,16 @@ class JacCmd:
 
             if FILE_INTERFACE == "s3":
 
-                @app.get("/files/{file_path:path}")
+                @app.get("/files/{file_path:path}", response_model=None)
                 async def serve_file(
                     file_path: str,
-                ) -> FileResponse | StreamingResponse:
+                ) -> Response:
                     return serve_proxied_file(file_path)
 
-            @app.get("/f/{file_id:path}")
+            @app.get("/f/{file_id:path}", response_model=None)
             async def get_proxied_file(
                 file_id: str,
-            ) -> FileResponse | StreamingResponse:
+            ) -> Response:
                 from bson import ObjectId
                 from fastapi import HTTPException
 
