@@ -293,7 +293,7 @@ class AgentInterface:
                     for chunk in response.generator:
                         full_text += chunk.content
                         await sleep(0.05)
-                        yield f"data: {json.dumps({"id": interaction_node.id, "content": chunk.content, "type": chunk.type, "metadata": chunk.response_metadata })}\n"
+                        yield f"data: {json.dumps({"id": interaction_node.id, "content": chunk.content, "session_id": interaction_node.response["session_id"], "type": chunk.type, "metadata": chunk.response_metadata })}\n"
 
                     ctx = AgentInterface.load_context()
                     interaction_node.set_text_message(message=full_text)
