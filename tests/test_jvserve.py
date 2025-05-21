@@ -118,6 +118,25 @@ class JVServeCliTest(unittest.TestCase):
             os.remove(f"{directory}/test.txt")
             os.rmdir(directory)
 
+    def test_jvproxyserve_runs(self) -> None:
+        """Ensure `jac jvproxyserve` runs successfully."""
+        try:
+            server_process = subprocess.Popen(
+                ["jac", "jvproxyserve", "--port", "9100"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            # Wait for the proxy server to be ready
+            self.wait_for_server("http://127.0.0.1:9100/docs")
+
+            res = httpx.get("http://127.0.0.1:9100/docs")
+            self.assertEqual(res.status_code, 200)
+
+        finally:
+            server_process.kill()
+
     def tearDown(self) -> None:
         """Cleanup after each test."""
         self.stop_server()

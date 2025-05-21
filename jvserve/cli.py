@@ -176,7 +176,7 @@ class JacCmd:
         def jvfileserve(
             directory: str, host: str = "0.0.0.0", port: int = 9000
         ) -> None:
-            """Launch the file server."""
+            """Launch the file server for local files."""
             # load FastAPI
             from fastapi import FastAPI
             from fastapi.middleware.cors import CORSMiddleware
@@ -194,21 +194,43 @@ class JacCmd:
                 allow_headers=["*"],
             )
 
-            if FILE_INTERFACE == "local":
-                if directory:
-                    os.environ["JIVAS_FILES_ROOT_PATH"] = directory
+            if not os.path.exists(directory):
+                os.makedirs(directory)
 
-                if not os.path.exists(directory):
-                    os.makedirs(directory)
+            # Set the environment variable for the file root path
+            os.environ["JIVAS_FILES_ROOT_PATH"] = directory
 
-                app.mount(
-                    "/files",
-                    StaticFiles(
-                        directory=os.environ.get("JIVAS_FILES_ROOT_PATH", ".files")
-                    ),
-                    name="files",
-                )
+            # Mount the static files directory
+            app.mount(
+                "/files",
+                StaticFiles(directory=directory),
+                name="files",
+            )
 
+            # run the app
+            _run(app, host=host, port=port)
+
+        @cmd_registry.register
+        def jvproxyserve(host: str = "0.0.0.0", port: int = 9000) -> None:
+            """Launch the file proxy server for remote files."""
+            # load FastAPI
+            from bson import ObjectId
+            from fastapi import FastAPI, HTTPException
+            from fastapi.middleware.cors import CORSMiddleware
+
+            # Setup custom routes
+            app = FastAPI()
+
+            # Add CORS middleware
+            app.add_middleware(
+                CORSMiddleware,
+                allow_origins=["*"],
+                allow_credentials=True,
+                allow_methods=["*"],
+                allow_headers=["*"],
+            )
+
+            # Add proxy routes only if using S3
             if FILE_INTERFACE == "s3":
 
                 @app.get("/files/{file_path:path}", response_model=None)
@@ -221,9 +243,6 @@ class JacCmd:
             async def get_proxied_file(
                 file_id: str,
             ) -> Response:
-                from bson import ObjectId
-                from fastapi import HTTPException
-
                 params = file_id.split("/")
                 object_id = params[0]
 
