@@ -121,8 +121,9 @@ class JVServeCliTest(unittest.TestCase):
     def test_jvproxyserve_runs(self) -> None:
         """Ensure `jac jvproxyserve` runs successfully."""
         try:
+            directory = "test_files"
             server_process = subprocess.Popen(
-                ["jac", "jvproxyserve", "--port", "9100"],
+                ["jac", "jvproxyserve", directory, "--port", "9100"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,

@@ -211,7 +211,9 @@ class JacCmd:
             _run(app, host=host, port=port)
 
         @cmd_registry.register
-        def jvproxyserve(host: str = "0.0.0.0", port: int = 9000) -> None:
+        def jvproxyserve(
+            directory: str, host: str = "0.0.0.0", port: int = 9000
+        ) -> None:
             """Launch the file proxy server for remote files."""
             # load FastAPI
             from bson import ObjectId
