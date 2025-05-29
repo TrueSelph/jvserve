@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
 
 from dotenv import load_dotenv
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, Response
 from jac_cloud.jaseci.security import authenticator
 from jac_cloud.plugin.jaseci import NodeAnchor
 from jaclang.cli.cmdreg import cmd_registry
@@ -238,21 +238,32 @@ class JacCmd:
                 @app.get("/files/{file_path:path}", response_model=None)
                 async def serve_file(
                     file_path: str,
-                ) -> Response:
+                ) -> FileResponse | StreamingResponse | Response:
+                    descriptor_path = os.environ["JIVAS_DESCRIPTOR_ROOT_PATH"]
+                    if descriptor_path and descriptor_path in file_path:
+                        return Response(status_code=403)
+
                     return serve_proxied_file(file_path)
 
             @app.get("/f/{file_id:path}", response_model=None)
             async def get_proxied_file(
                 file_id: str,
-            ) -> Response:
+            ) -> FileResponse | StreamingResponse | Response:
+                from bson import ObjectId
+                from fastapi import HTTPException
+
                 params = file_id.split("/")
                 object_id = params[0]
 
                 # mongo db collection
                 collection = NodeAnchor.Collection.get_collection("url_proxies")
                 file_details = collection.find_one({"_id": ObjectId(object_id)})
+                descriptor_path = os.environ["JIVAS_DESCRIPTOR_ROOT_PATH"]
 
                 if file_details:
+                    if descriptor_path and descriptor_path in file_details["path"]:
+                        return Response(status_code=403)
+
                     return serve_proxied_file(file_details["path"])
 
                 raise HTTPException(status_code=404, detail="File not found")
