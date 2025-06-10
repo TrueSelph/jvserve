@@ -6,6 +6,7 @@ import os
 import string
 import time
 import traceback
+import asyncio
 from asyncio import sleep
 from typing import Any, AsyncGenerator, Dict, Iterator, List, Optional
 from urllib.parse import quote, unquote
@@ -243,7 +244,7 @@ class AgentInterface:
         streaming: Optional[bool] = None
 
     @staticmethod
-    def interact(payload: InteractPayload) -> dict:
+    def interact(payload: InteractPayload, request: Request) -> dict:
         """Interact with the agent."""
         response = None
         ctx = AgentInterface.load_context()
@@ -291,7 +292,7 @@ class AgentInterface:
                     interaction_node = response.interaction_node
 
                     async def generate(
-                        generator: Iterator,
+                        generator: Iterator, request
                     ) -> AsyncGenerator[str, None]:
                         """
                         Asynchronously yield data chunks from a response generator in Server-Sent Events (SSE) format.
@@ -304,11 +305,11 @@ class AgentInterface:
                         """
                         full_text = ""
                         total_tokens = 0
+
                         try:
                             for chunk in generator:
                                 full_text += chunk.content
                                 total_tokens += 1  # each chunk is a token, let's tally
-                                await sleep(0.025)
                                 yield (
                                     "data: "
                                     + json.dumps(
@@ -324,6 +325,7 @@ class AgentInterface:
                                     )
                                     + "\n\n"
                                 )
+                                await sleep(0.025)
                             # Update the interaction node with the fully generated text
                             actx = await AgentInterface.load_context_async()
                             try:
@@ -336,7 +338,7 @@ class AgentInterface:
                                         attributes={
                                             "interaction_data": interaction_node.export(),
                                         },
-                                        module_name="jivas.agent.action.update_interaction",
+                                        module_name="jivas.agent.memory.update_interaction",
                                     ),
                                 )
                             finally:
@@ -347,9 +349,30 @@ class AgentInterface:
                             AgentInterface.LOGGER.error(
                                 f"Exception in streaming generator: {e}, {traceback.format_exc()}"
                             )
+                        except asyncio.CancelledError:
+                            AgentInterface.LOGGER.error(
+                                "Client disconnected. Aborting stream."
+                            )
+                            actx = await AgentInterface.load_context_async()
+                            try:
+                                interaction_node.set_text_message(message=full_text)
+                                interaction_node.add_tokens(total_tokens)
+                                _Jac.spawn_call(
+                                    NodeAnchor.ref(interaction_node.id).architype,
+                                    AgentInterface.spawn_walker(
+                                        walker_name="update_interaction",
+                                        attributes={
+                                            "interaction_data": interaction_node.export(),
+                                        },
+                                        module_name="jivas.agent.memory.update_interaction",
+                                    ),
+                                )
+                            finally:
+                                if actx:
+                                    actx.close()
 
                     return StreamingResponse(
-                        generate(response.generator),
+                        generate(response.generator, request),
                         media_type="text/event-stream",
                     )
 
