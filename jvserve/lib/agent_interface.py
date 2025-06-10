@@ -1,12 +1,12 @@
 """Agent Interface class and methods for interaction with Jivas."""
 
+import asyncio
 import json
 import logging
 import os
 import string
 import time
 import traceback
-import asyncio
 from asyncio import sleep
 from typing import Any, AsyncGenerator, Dict, Iterator, List, Optional
 from urllib.parse import quote, unquote
@@ -292,7 +292,7 @@ class AgentInterface:
                     interaction_node = response.interaction_node
 
                     async def generate(
-                        generator: Iterator, request
+                        generator: Iterator, request: Request
                     ) -> AsyncGenerator[str, None]:
                         """
                         Asynchronously yield data chunks from a response generator in Server-Sent Events (SSE) format.
