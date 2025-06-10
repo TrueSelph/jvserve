@@ -7,14 +7,13 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
 
 from dotenv import load_dotenv
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from jac_cloud.jaseci.security import authenticator
 from jac_cloud.plugin.jaseci import NodeAnchor
 from jaclang.cli.cmdreg import cmd_registry
 from jaclang.plugin.default import hookimpl
 from jaclang.runtimelib.context import ExecutionContext
 from jaclang.runtimelib.machine import JacMachine
-from requests import Response
 from uvicorn import run as _run
 
 from jvserve.lib.agent_interface import AgentInterface
@@ -216,8 +215,7 @@ class JacCmd:
         ) -> None:
             """Launch the file proxy server for remote files."""
             # load FastAPI
-            from bson import ObjectId
-            from fastapi import FastAPI, HTTPException
+            from fastapi import FastAPI
             from fastapi.middleware.cors import CORSMiddleware
 
             # Setup custom routes
@@ -238,21 +236,32 @@ class JacCmd:
                 @app.get("/files/{file_path:path}", response_model=None)
                 async def serve_file(
                     file_path: str,
-                ) -> Response:
+                ) -> FileResponse | StreamingResponse | Response:
+                    descriptor_path = os.environ["JIVAS_DESCRIPTOR_ROOT_PATH"]
+                    if descriptor_path and descriptor_path in file_path:
+                        return Response(status_code=403)
+
                     return serve_proxied_file(file_path)
 
             @app.get("/f/{file_id:path}", response_model=None)
             async def get_proxied_file(
                 file_id: str,
-            ) -> Response:
+            ) -> FileResponse | StreamingResponse | Response:
+                from bson import ObjectId
+                from fastapi import HTTPException
+
                 params = file_id.split("/")
                 object_id = params[0]
 
                 # mongo db collection
                 collection = NodeAnchor.Collection.get_collection("url_proxies")
                 file_details = collection.find_one({"_id": ObjectId(object_id)})
+                descriptor_path = os.environ["JIVAS_DESCRIPTOR_ROOT_PATH"]
 
                 if file_details:
+                    if descriptor_path and descriptor_path in file_details["path"]:
+                        return Response(status_code=403)
+
                     return serve_proxied_file(file_details["path"])
 
                 raise HTTPException(status_code=404, detail="File not found")
