@@ -160,18 +160,87 @@ class AgentInterface:
         return response
 
     @staticmethod
+    def get_action_data(agent_id: str, action_label: str) -> dict:
+        """Retrieves the data for a specific action of an agent."""
+
+        action_data = {}
+        ctx = AgentInterface.load_context()
+
+        if not ctx:
+            return {}
+
+        # TODO : raise error in the event agent id is invalid
+        AgentInterface.LOGGER.debug(
+            f"attempting to interact with agent {agent_id} with user root {ctx.root}..."
+        )
+
+        try:
+            actions = _Jac.spawn_call(
+                ctx.entry_node.architype,
+                AgentInterface.spawn_walker(
+                    walker_name="list_actions",
+                    attributes={"agent_id": agent_id},
+                    module_name="agent.action.list_actions",
+                ),
+            ).actions
+
+            if actions:
+                for action in actions:
+                    if action.get("label") == action_label:
+                        action_data = action
+                        break
+
+        except Exception as e:
+            AgentInterface.EXPIRATION = None
+            AgentInterface.LOGGER.error(
+                f"an exception occurred: {e}, {traceback.format_exc()}"
+            )
+
+        ctx.close()
+        return action_data
+
+    @staticmethod
     async def action_walker_exec(
-        agent_id: str = Form(...),  # noqa: B008
-        module_root: str = Form(...),  # noqa: B008
-        walker: str = Form(...),  # noqa: B008
+        agent_id: Optional[str] = Form(None),  # noqa: B008
+        action: Optional[str] = Form(None),  # noqa: B008
+        walker: Optional[str] = Form(None),  # noqa: B008
         args: Optional[str] = Form(None),  # noqa: B008
         attachments: List[UploadFile] = File(default_factory=list),  # noqa: B008
     ) -> JSONResponse:
         """Execute a named walker exposed by an action within context; capable of handling JSON or file data depending on request"""
 
-        response = JSONResponse(status_code=500, content="unable to complete request")
-
+        ctx = None
         try:
+            if not agent_id or not walker or not action:
+                AgentInterface.LOGGER.error("missing parameters")
+                return JSONResponse(
+                    status_code=401, content="missing required parameters"
+                )
+
+            # try to grab the action data to resolve module
+            action_data = AgentInterface.get_action_data(agent_id, action)
+
+            if not action_data:
+                AgentInterface.LOGGER.error(
+                    f"action {action} not found for agent {agent_id}"
+                )
+                return JSONResponse(status_code=404, content="action not found")
+
+            module_root = (
+                action_data.get("_package", {}).get("config", {}).get("module_root", "")
+            )
+
+            if not module_root:
+                AgentInterface.LOGGER.error(
+                    f"module not found for action {action} of agent {agent_id}"
+                )
+                return JSONResponse(status_code=404, content="module not found")
+
+            # now make the call to the action walker
+            ctx = await AgentInterface.load_context_async()
+            if not ctx:
+                AgentInterface.LOGGER.error(f"unable to execute {walker}")
+                return JSONResponse(status_code=500, content="context not found")
 
             # add agent id as a standard
             attributes: Dict[str, Any] = {"agent_id": agent_id}
@@ -192,44 +261,31 @@ class AgentInterface:
                         }
                     )
 
-            if not agent_id or not walker or not module_root:
-                AgentInterface.LOGGER.error("missing parameters")
+            walker_response = _Jac.spawn_call(
+                ctx.entry_node.architype,
+                AgentInterface.spawn_walker(
+                    walker_name=walker,
+                    attributes=attributes,
+                    module_name=f"{module_root}.{walker}",
+                ),
+            ).response
+
+            if isinstance(walker_response, dict):
+                return JSONResponse(status_code=200, content=walker_response)
+            else:
                 return JSONResponse(
-                    status_code=401, content="missing required parameters"
+                    status_code=200, content={"response": walker_response}
                 )
 
         except Exception as e:
+            AgentInterface.EXPIRATION = None
             AgentInterface.LOGGER.error(
                 f"an exception occurred: {e}, {traceback.format_exc()}"
             )
-            return JSONResponse(status_code=500, content="internal server error")
-
-        ctx = await AgentInterface.load_context_async()
-        if ctx:
-            # compose full module_path
-            module = f"{module_root}.{walker}"
-
-            try:
-                response = _Jac.spawn_call(
-                    ctx.entry_node.architype,
-                    AgentInterface.spawn_walker(
-                        walker_name=walker,
-                        attributes=attributes,
-                        module_name=module,
-                    ),
-                ).response
-
-            except Exception as e:
-                AgentInterface.EXPIRATION = None
-                AgentInterface.LOGGER.error(
-                    f"an exception occurred: {e}, {traceback.format_exc()}"
-                )
-        else:
-            AgentInterface.LOGGER.error(f"unable to execute {walker}")
-
-        ctx.close()
-
-        return response
+            return JSONResponse(status_code=500, content=str(e))
+        finally:
+            if ctx:
+                ctx.close()
 
     class InteractPayload(BaseModel):
         """Payload for interacting with the agent."""
