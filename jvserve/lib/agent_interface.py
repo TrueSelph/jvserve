@@ -207,60 +207,102 @@ class AgentInterface:
         args: Optional[str] = Form(None),  # noqa: B008
         attachments: List[UploadFile] = File(default_factory=list),  # noqa: B008
     ) -> JSONResponse:
-        """Execute a named walker exposed by an action within context; capable of handling JSON or file data depending on request"""
+        """
+        Execute a named walker exposed by an action within context.
+        Capable of handling JSON or file data depending on request.
 
+        Args:
+            agent_id: ID of the agent
+            action: Name of the action
+            walker: Name of the walker to execute
+            args: JSON string of additional arguments
+            attachments: List of uploaded files
+
+        Returns:
+            JSONResponse: Response containing walker output or error message
+        """
         ctx = None
         try:
-            if not agent_id or not walker or not action:
-                AgentInterface.LOGGER.error("missing parameters")
+            # Validate required parameters
+            if walker is None or agent_id is None or action is None:
+                AgentInterface.LOGGER.error("Missing required parameters")
                 return JSONResponse(
-                    status_code=401, content="missing required parameters"
+                    status_code=400,  # 400 (Bad Request)
+                    content={"error": "Missing required parameters"},
                 )
 
-            # try to grab the action data to resolve module
-            action_data = AgentInterface.get_action_data(agent_id, action)
+            # Get action data to resolve module
+            if agent_id is None or action is None:
+                AgentInterface.LOGGER.error("agent_id and action must not be None")
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "agent_id and action must not be None"},
+                )
 
+            action_data = AgentInterface.get_action_data(agent_id, action)
             if not action_data:
                 AgentInterface.LOGGER.error(
-                    f"action {action} not found for agent {agent_id}"
+                    f"Action {action} not found for agent {agent_id}"
                 )
-                return JSONResponse(status_code=404, content="action not found")
+                return JSONResponse(
+                    status_code=404,
+                    content={"error": "Action not found"},
+                )
 
             module_root = (
                 action_data.get("_package", {}).get("config", {}).get("module_root", "")
             )
-
             if not module_root:
                 AgentInterface.LOGGER.error(
-                    f"module not found for action {action} of agent {agent_id}"
+                    f"Module not found for action {action} of agent {agent_id}"
                 )
-                return JSONResponse(status_code=404, content="module not found")
+                return JSONResponse(
+                    status_code=404,
+                    content={"error": "Module not found"},
+                )
 
-            # now make the call to the action walker
+            # Load execution context
             ctx = await AgentInterface.load_context_async()
             if not ctx:
-                AgentInterface.LOGGER.error(f"unable to execute {walker}")
-                return JSONResponse(status_code=500, content="context not found")
+                AgentInterface.LOGGER.error(f"Unable to execute {walker}")
+                return JSONResponse(
+                    status_code=500,
+                    content={"error": "Failed to load execution context"},
+                )
 
-            # add agent id as a standard
+            # Prepare attributes
             attributes: Dict[str, Any] = {"agent_id": agent_id}
 
-            # add any other args
+            # Parse additional arguments if provided
             if args:
-                attributes.update(json.loads(args))
+                try:
+                    attributes.update(json.loads(args))
+                except json.JSONDecodeError as e:
+                    AgentInterface.LOGGER.error(f"Invalid JSON in args: {e}")
+                    return JSONResponse(
+                        status_code=400,
+                        content={"error": "Invalid JSON in arguments"},
+                    )
 
-            # Processing files if any were uploaded
+            # Process uploaded files
             if attachments:
                 attributes["files"] = []
                 for file in attachments:
-                    attributes["files"].append(
-                        {
-                            "name": file.filename,
-                            "type": file.content_type,
-                            "content": await file.read(),
-                        }
-                    )
+                    try:
+                        attributes["files"].append(
+                            {
+                                "name": file.filename,
+                                "type": file.content_type,
+                                "content": await file.read(),
+                            }
+                        )
+                    except Exception as e:
+                        AgentInterface.LOGGER.error(
+                            f"Failed to process file {file.filename}: {e}"
+                        )
+                        continue  # Skip problematic files or return error if critical
 
+            # Execute the walker
             walker_response = _Jac.spawn_call(
                 ctx.entry_node.architype,
                 AgentInterface.spawn_walker(
@@ -270,22 +312,58 @@ class AgentInterface:
                 ),
             ).response
 
-            if isinstance(walker_response, dict):
-                return JSONResponse(status_code=200, content=walker_response)
-            else:
+            # Handle different response types appropriately
+            try:
+                # If it's already a proper Response object, return as-is
+                if isinstance(walker_response, requests.Response):
+                    return walker_response
+
+                # If it's a Pydantic model or similar complex object with dict representation
+                if hasattr(walker_response, "dict"):
+                    return JSONResponse(status_code=200, content=walker_response.dict())
+
+                # If it's a list of complex objects
+                if (
+                    isinstance(walker_response, list)
+                    and len(walker_response) > 0
+                    and hasattr(walker_response[0], "dict")
+                ):
+                    return JSONResponse(
+                        status_code=200,
+                        content=[item.dict() for item in walker_response],
+                    )
+
+                # For other JSON-serializable types
+                try:
+                    return JSONResponse(status_code=200, content=walker_response)
+                except TypeError:
+                    # Fallback to string representation if not directly JSON-serializable
+                    return JSONResponse(
+                        status_code=200, content={"result": str(walker_response)}
+                    )
+
+            except Exception as e:
+                AgentInterface.LOGGER.error(f"Failed to format walker response: {e}")
                 return JSONResponse(
-                    status_code=200, content={"response": walker_response}
+                    status_code=500,
+                    content={"error": "Failed to format response", "details": str(e)},
                 )
 
         except Exception as e:
             AgentInterface.EXPIRATION = None
             AgentInterface.LOGGER.error(
-                f"an exception occurred: {e}, {traceback.format_exc()}"
+                f"Exception occurred: {str(e)}\n{traceback.format_exc()}"
             )
-            return JSONResponse(status_code=500, content=str(e))
+            return JSONResponse(
+                status_code=500,
+                content={"error": "Internal server error", "details": str(e)},
+            )
         finally:
             if ctx:
-                ctx.close()
+                try:
+                    ctx.close()
+                except Exception as e:
+                    AgentInterface.LOGGER.error(f"Error closing context: {str(e)}")
 
     class InteractPayload(BaseModel):
         """Payload for interacting with the agent."""
