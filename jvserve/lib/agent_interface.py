@@ -200,9 +200,9 @@ class AgentInterface:
         return action_data
 
     @staticmethod
-    async def action_walker_exec(
+    def action_walker_exec(
         agent_id: Optional[str] = Form(None),  # noqa: B008
-        action: Optional[str] = Form(None),  # noqa: B008
+        module_root: Optional[str] = Form(None),  # noqa: B008
         walker: Optional[str] = Form(None),  # noqa: B008
         args: Optional[str] = Form(None),  # noqa: B008
         attachments: List[UploadFile] = File(default_factory=list),  # noqa: B008
@@ -224,45 +224,15 @@ class AgentInterface:
         ctx = None
         try:
             # Validate required parameters
-            if walker is None or agent_id is None or action is None:
+            if walker is None or agent_id is None or module_root is None:
                 AgentInterface.LOGGER.error("Missing required parameters")
                 return JSONResponse(
                     status_code=400,  # 400 (Bad Request)
                     content={"error": "Missing required parameters"},
                 )
 
-            # Get action data to resolve module
-            if agent_id is None or action is None:
-                AgentInterface.LOGGER.error("agent_id and action must not be None")
-                return JSONResponse(
-                    status_code=400,
-                    content={"error": "agent_id and action must not be None"},
-                )
-
-            action_data = AgentInterface.get_action_data(agent_id, action)
-            if not action_data:
-                AgentInterface.LOGGER.error(
-                    f"Action {action} not found for agent {agent_id}"
-                )
-                return JSONResponse(
-                    status_code=404,
-                    content={"error": "Action not found"},
-                )
-
-            module_root = (
-                action_data.get("_package", {}).get("config", {}).get("module_root", "")
-            )
-            if not module_root:
-                AgentInterface.LOGGER.error(
-                    f"Module not found for action {action} of agent {agent_id}"
-                )
-                return JSONResponse(
-                    status_code=404,
-                    content={"error": "Module not found"},
-                )
-
             # Load execution context
-            ctx = await AgentInterface.load_context_async()
+            ctx = AgentInterface.load_context()
             if not ctx:
                 AgentInterface.LOGGER.error(f"Unable to execute {walker}")
                 return JSONResponse(
@@ -293,7 +263,7 @@ class AgentInterface:
                             {
                                 "name": file.filename,
                                 "type": file.content_type,
-                                "content": await file.read(),
+                                "content": file.file.read(),
                             }
                         )
                     except Exception as e:
@@ -311,43 +281,9 @@ class AgentInterface:
                     module_name=f"{module_root}.{walker}",
                 ),
             ).response
+            ctx.close()
 
-            # Handle different response types appropriately
-            try:
-                # If it's already a proper Response object, return as-is
-                if isinstance(walker_response, requests.Response):
-                    return walker_response
-
-                # If it's a Pydantic model or similar complex object with dict representation
-                if hasattr(walker_response, "dict"):
-                    return JSONResponse(status_code=200, content=walker_response.dict())
-
-                # If it's a list of complex objects
-                if (
-                    isinstance(walker_response, list)
-                    and len(walker_response) > 0
-                    and hasattr(walker_response[0], "dict")
-                ):
-                    return JSONResponse(
-                        status_code=200,
-                        content=[item.dict() for item in walker_response],
-                    )
-
-                # For other JSON-serializable types
-                try:
-                    return JSONResponse(status_code=200, content=walker_response)
-                except TypeError:
-                    # Fallback to string representation if not directly JSON-serializable
-                    return JSONResponse(
-                        status_code=200, content={"result": str(walker_response)}
-                    )
-
-            except Exception as e:
-                AgentInterface.LOGGER.error(f"Failed to format walker response: {e}")
-                return JSONResponse(
-                    status_code=500,
-                    content={"error": "Failed to format response", "details": str(e)},
-                )
+            return walker_response
 
         except Exception as e:
             AgentInterface.EXPIRATION = None
