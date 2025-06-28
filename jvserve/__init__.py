@@ -5,4 +5,4 @@ This package provides the webserver for loading and interacting with JIVAS agent
 """
 
 __version__ = "2.1.0"
-__supported__jivas__versions__ = ["2.0.1"]
+__supported__jivas__versions__ = ["2.1.0"]
