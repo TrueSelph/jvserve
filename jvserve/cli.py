@@ -4,6 +4,7 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
+from pickle import load
 from typing import AsyncIterator, Optional
 
 from dotenv import load_dotenv
@@ -11,9 +12,9 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from jac_cloud.jaseci.security import authenticator
 from jac_cloud.plugin.jaseci import NodeAnchor
 from jaclang.cli.cmdreg import cmd_registry
-from jaclang.plugin.default import hookimpl
-from jaclang.runtimelib.context import ExecutionContext
-from jaclang.runtimelib.machine import JacMachine
+from jac_cloud.jaseci.main import FastAPI
+from jaclang import JacMachine as Jac
+from jaclang.runtimelib.machine import hookimpl
 from uvicorn import run as _run
 
 from jvserve.lib.agent_interface import AgentInterface
@@ -26,59 +27,6 @@ from jvserve.lib.file_interface import (
 from jvserve.lib.jvlogger import JVLogger
 
 load_dotenv(".env")
-
-
-def serve_proxied_file(file_path: str) -> FileResponse | StreamingResponse:
-    """Serve a proxied file from a remote or local URL."""
-    import mimetypes
-
-    import requests
-    from fastapi import HTTPException
-
-    if FILE_INTERFACE == "local":
-        return FileResponse(path=os.path.join(DEFAULT_FILES_ROOT, file_path))
-
-    file_url = file_interface.get_file_url(file_path)
-
-    if file_url and ("localhost" in file_url or "127.0.0.1" in file_url):
-        # prevent recusive calls when env vars are not detected
-        raise HTTPException(status_code=500, detail="Environment not set up correctly")
-
-    if not file_url:
-        raise HTTPException(status_code=404, detail="File not found")
-
-    file_extension = os.path.splitext(file_path)[1].lower()
-
-    # List of extensions to serve directly
-    direct_serve_extensions = [
-        ".pdf",
-        ".html",
-        ".txt",
-        ".js",
-        ".css",
-        ".json",
-        ".xml",
-        ".svg",
-        ".csv",
-        ".ico",
-    ]
-
-    if file_extension in direct_serve_extensions:
-        file_response = requests.get(file_url)
-        file_response.raise_for_status()  # Raise HTTPError for bad responses (4XX or 5XX)
-
-        mime_type = mimetypes.guess_type(file_path)[0] or "application/octet-stream"
-
-        return StreamingResponse(iter([file_response.content]), media_type=mime_type)
-
-    file_response = requests.get(file_url, stream=True)
-    file_response.raise_for_status()
-
-    return StreamingResponse(
-        file_response.iter_content(chunk_size=1024),
-        media_type="application/octet-stream",
-    )
-
 
 class JacCmd:
     """Jac CLI."""
@@ -97,34 +45,25 @@ class JacCmd:
             workers: Optional[int] = None,
         ) -> None:
             """Launch the jac application."""
-            from jaclang import jac_import
-
+            
             # set up logging
             JVLogger.setup_logging(level=loglevel)
             logger = logging.getLogger(__name__)
 
-            # load FastAPI
-            from jac_cloud import FastAPI
-
-            FastAPI.enable()
-
-            # load the JAC application
-            jctx = ExecutionContext.create()
-
             base, mod = os.path.split(filename)
             base = base if base else "./"
             mod = mod[:-4]
-
+            
+            FastAPI.enable()
             if filename.endswith(".jac"):
-                start_time = time.time()
-                jac_import(
-                    target=mod,
-                    base_path=base,
-                    cachable=True,
-                    override_name="__main__",
-                )
-                logger.info(f"Loading took {time.time() - start_time} seconds")
-
+                Jac.jac_import(target=mod, base_path=base, override_name="__main__")
+            elif filename.endswith(".jir"):
+                with open(filename, "rb") as f:
+                    Jac.attach_program(load(f))
+                    Jac.jac_import(target=mod, base_path=base, override_name="__main__")
+            else:
+                raise ValueError("Not a valid file!\nOnly supports `.jac` and `.jir`")
+            
             AgentInterface.HOST = host
             AgentInterface.PORT = port
 
@@ -137,9 +76,6 @@ class JacCmd:
                 # Perform initialization actions here
                 logger.info("JIVAS is shutting down...")
                 AgentPulse.stop()
-                # await AgentRTC.on_shutdown()
-                jctx.close()
-                JacMachine.detach()
 
             app_lifespan = FastAPI.get().router.lifespan_context
 
@@ -268,3 +204,55 @@ class JacCmd:
 
             # run the app
             _run(app, host=host, port=port)
+
+
+def serve_proxied_file(file_path: str) -> FileResponse | StreamingResponse:
+    """Serve a proxied file from a remote or local URL."""
+    import mimetypes
+
+    import requests
+    from fastapi import HTTPException
+
+    if FILE_INTERFACE == "local":
+        return FileResponse(path=os.path.join(DEFAULT_FILES_ROOT, file_path))
+
+    file_url = file_interface.get_file_url(file_path)
+
+    if file_url and ("localhost" in file_url or "127.0.0.1" in file_url):
+        # prevent recusive calls when env vars are not detected
+        raise HTTPException(status_code=500, detail="Environment not set up correctly")
+
+    if not file_url:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    file_extension = os.path.splitext(file_path)[1].lower()
+
+    # List of extensions to serve directly
+    direct_serve_extensions = [
+        ".pdf",
+        ".html",
+        ".txt",
+        ".js",
+        ".css",
+        ".json",
+        ".xml",
+        ".svg",
+        ".csv",
+        ".ico",
+    ]
+
+    if file_extension in direct_serve_extensions:
+        file_response = requests.get(file_url)
+        file_response.raise_for_status()  # Raise HTTPError for bad responses (4XX or 5XX)
+
+        mime_type = mimetypes.guess_type(file_path)[0] or "application/octet-stream"
+
+        return StreamingResponse(iter([file_response.content]), media_type=mime_type)
+
+    file_response = requests.get(file_url, stream=True)
+    file_response.raise_for_status()
+
+    return StreamingResponse(
+        file_response.iter_content(chunk_size=1024),
+        media_type="application/octet-stream",
+    )

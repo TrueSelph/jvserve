@@ -15,7 +15,7 @@ import aiohttp
 import requests
 from fastapi import File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
-from jac_cloud.core.architype import AnchorState, Permission, Root
+from jac_cloud.core.archetype import AnchorState, Permission, Root
 from jac_cloud.core.context import (
     JASECI_CONTEXT,
     SUPER_ROOT,
@@ -25,8 +25,8 @@ from jac_cloud.core.context import (
 )
 from jac_cloud.core.memory import MongoDB
 from jac_cloud.plugin.jaseci import NodeAnchor
-from jaclang.plugin.feature import JacFeature as _Jac
-from jaclang.runtimelib.machine import JacMachine
+from jaclang import JacMachine
+from jaclang import JacMachine as _Jac
 from pydantic import BaseModel
 
 
@@ -40,6 +40,24 @@ class AgentInterface:
     EXPIRATION = None
     LOGGER = logging.getLogger(__name__)
 
+    @staticmethod
+    def load_module(module_name: str) -> None:
+        """Load any module by name"""
+        # Get the list of modules
+        modules = JacMachine.get().list_modules()
+
+        # Search for the exact module name in the list of modules
+        for mod in modules:
+            if mod.endswith(module_name):
+                module_name = mod
+                break
+
+        try:
+            module = JacMachine.get().load_module(module_name)
+            return module
+        except Exception as e:
+            raise ValueError(f"Unable to load module {module_name}: {e}")
+        
     @staticmethod
     def spawn_walker(
         walker_name: str, module_name: str, attributes: dict
