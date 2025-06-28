@@ -85,15 +85,17 @@ class AgentInterface:
         """Spawn any node by name, located in module"""
         # Get the list of modules
         modules = JacMachineInterface.list_modules()
-
+        
         # Search for the exact module name in the list of modules
         for mod in modules:
             if mod.endswith(module_name):
                 module_name = mod
                 break
-
+                
         try:
             node = JacMachineInterface.spawn_node(node_name, attributes, module_name)
+            # TODO: Remove after testing
+            AgentInterface.LOGGER.warning(node)
             return node
         except Exception as e:
             raise ValueError(
