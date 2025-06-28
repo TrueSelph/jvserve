@@ -6,6 +6,7 @@ import logging
 import os
 import string
 import time
+import types
 import traceback
 from asyncio import sleep
 from typing import Any, AsyncGenerator, Dict, Iterator, List, Optional
@@ -25,8 +26,7 @@ from jac_cloud.core.context import (
 )
 from jac_cloud.core.memory import MongoDB
 from jac_cloud.plugin.jaseci import NodeAnchor
-from jaclang import JacMachine
-from jaclang import JacMachine as _Jac
+from jaclang.runtimelib.machine import JacMachineInterface
 from pydantic import BaseModel
 
 
@@ -44,7 +44,7 @@ class AgentInterface:
     def load_module(module_name: str) -> None:
         """Load any module by name"""
         # Get the list of modules
-        modules = JacMachine.get().list_modules()
+        modules = JacMachineInterface.list_modules()
 
         # Search for the exact module name in the list of modules
         for mod in modules:
@@ -53,18 +53,18 @@ class AgentInterface:
                 break
 
         try:
-            module = JacMachine.get().load_module(module_name)
-            return module
+            module_type = types.ModuleType(module_name)
+            return JacMachineInterface.load_module(module_name, module_type)
         except Exception as e:
             raise ValueError(f"Unable to load module {module_name}: {e}")
         
     @staticmethod
     def spawn_walker(
         walker_name: str, module_name: str, attributes: dict
-    ) -> _Jac.Walker:
+    ) -> JacMachineInterface.Walker:
         """Spawn any walker by name, located in module"""
         # Get the list of modules
-        modules = JacMachine.get().list_modules()
+        modules = JacMachineInterface.list_modules()
 
         # Search for the exact module name in the list of modules
         for mod in modules:
@@ -73,7 +73,7 @@ class AgentInterface:
                 break
 
         try:
-            walker = JacMachine.get().spawn_walker(walker_name, attributes, module_name)
+            walker = JacMachineInterface.spawn_walker(walker_name, attributes, module_name)
             return walker
         except Exception as e:
             raise ValueError(
@@ -81,10 +81,10 @@ class AgentInterface:
             )
 
     @staticmethod
-    def spawn_node(node_name: str, module_name: str, attributes: dict) -> _Jac.Node:
+    def spawn_node(node_name: str, module_name: str, attributes: dict) -> JacMachineInterface.Node:
         """Spawn any node by name, located in module"""
         # Get the list of modules
-        modules = JacMachine.get().list_modules()
+        modules = JacMachineInterface.list_modules()
 
         # Search for the exact module name in the list of modules
         for mod in modules:
@@ -93,7 +93,7 @@ class AgentInterface:
                 break
 
         try:
-            node = JacMachine.get().spawn_node(node_name, attributes, module_name)
+            node = JacMachineInterface.spawn_node(node_name, attributes, module_name)
             return node
         except Exception as e:
             raise ValueError(
@@ -144,7 +144,7 @@ class AgentInterface:
             # compose full module_path
             module = f"{module_root}.{walker}"
             try:
-                response = _Jac.spawn_call(
+                response = JacMachineInterface.spawn_call(
                     ctx.entry_node.architype,
                     AgentInterface.spawn_walker(
                         walker_name=walker,
@@ -193,7 +193,7 @@ class AgentInterface:
         )
 
         try:
-            actions = _Jac.spawn_call(
+            actions = JacMachineInterface.spawn_call(
                 ctx.entry_node.architype,
                 AgentInterface.spawn_walker(
                     walker_name="list_actions",
@@ -291,7 +291,7 @@ class AgentInterface:
                         continue  # Skip problematic files or return error if critical
 
             # Execute the walker
-            walker_response = _Jac.spawn_call(
+            walker_response = JacMachineInterface.spawn_call(
                 ctx.entry_node.architype,
                 AgentInterface.spawn_walker(
                     walker_name=walker,
@@ -346,7 +346,7 @@ class AgentInterface:
         )
 
         try:
-            response = _Jac.spawn_call(
+            response = JacMachineInterface.spawn_call(
                 ctx.entry_node.architype,
                 AgentInterface.spawn_walker(
                     walker_name="interact",
@@ -419,7 +419,7 @@ class AgentInterface:
                             try:
                                 interaction_node.set_text_message(message=full_text)
                                 interaction_node.add_tokens(total_tokens)
-                                _Jac.spawn_call(
+                                JacMachineInterface.spawn_call(
                                     NodeAnchor.ref(interaction_node.id).architype,
                                     AgentInterface.spawn_walker(
                                         walker_name="update_interaction",
@@ -445,7 +445,7 @@ class AgentInterface:
                             try:
                                 interaction_node.set_text_message(message=full_text)
                                 interaction_node.add_tokens(total_tokens)
-                                _Jac.spawn_call(
+                                JacMachineInterface.spawn_call(
                                     NodeAnchor.ref(interaction_node.id).architype,
                                     AgentInterface.spawn_walker(
                                         walker_name="update_interaction",
@@ -504,7 +504,7 @@ class AgentInterface:
         )
 
         try:
-            response = _Jac.spawn_call(
+            response = JacMachineInterface.spawn_call(
                 ctx.entry_node.architype,
                 AgentInterface.spawn_walker(
                     walker_name="pulse",
