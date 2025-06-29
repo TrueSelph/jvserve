@@ -9,7 +9,7 @@ import time
 import types
 import traceback
 from asyncio import sleep
-from typing import Any, AsyncGenerator, Dict, Iterator, List, Optional
+from typing import Any, AsyncGenerator, Dict, Iterator, List, Optional, Union
 from urllib.parse import quote, unquote
 
 import aiohttp
@@ -27,7 +27,7 @@ from jac_cloud.core.context import (
     JASECI_CONTEXT,
     SUPER_ROOT,
     SUPER_ROOT_ID,
-    ExecutionContext,
+    JaseciContext
 )
 from jac_cloud.plugin.jaseci import (
     JacPlugin
@@ -49,25 +49,25 @@ class AgentInterface:
         
     @staticmethod
     def spawn_walker(
-        walker_name: str, attributes: dict, module_name: str
-    ) -> WalkerArchetype:
+        walker_name: str, 
+        attributes: dict, 
+        module_name: str, 
+        entry_node:NodeAnchor
+    ) -> Union[WalkerArchetype, None]:
         """Spawn any walker by name, located in module"""
-        # Get the list of modules
         
-        try:
-            module = f"{module_name}"
-             # see if the action module is actually loaded
-            # if not JacMachine.loaded_modules.get(module):
-            #     raise ValueError(f"Unable to spawn: {walker_name}, module not loaded.")
-        
-            walker = JacMachine.spawn_walker(walker_name, attributes, module)
-            AgentInterface.LOGGER.warning(type(walker))
-            
-            return walker
+        try:     
+            # first try to get the walker object
+            walker_obj = JacMachine.spawn_walker(walker_name, attributes, module_name) 
+            # execute the walker on the entry node
+            return JacPlugin.spawn(walker_obj, entry_node) 
+                  
         except Exception as e:
             AgentInterface.LOGGER.error(
                 f"Unable to spawn walker {walker_name}: {e}"
             )
+
+        return None
 
     @staticmethod
     async def webhook_exec(key: str, request: Request) -> JSONResponse:
@@ -113,21 +113,19 @@ class AgentInterface:
             # compose full module_path
             module = f"{module_root}.{walker}"
             try:
-                response = JacMachineInterface.spawn_call(
-                    ctx.entry_node.archetype,
-                    AgentInterface.spawn_walker(
-                        walker_name=walker,
-                        attributes={
-                            "headers": request.headers,
-                            "agent_id": agent_id,
-                            "params": params,
-                            "reporting": False,
-                        },
-                        module_name=module,
-                    ),
-                ).response
-
-                if response:
+                walker_obj = AgentInterface.spawn_walker(
+                                walker_name=walker,
+                                attributes={
+                                    "headers": request.headers,
+                                    "agent_id": agent_id,
+                                    "params": params,
+                                    "reporting": False,
+                                },
+                                module_name=module,
+                                entry_node=ctx.entry_node.archetype,
+                            )
+                                    
+                if walker_obj and (response := walker_obj.response):
                     if isinstance(response, str):
                         response = json.loads(response)
                     response = JSONResponse(
@@ -162,16 +160,14 @@ class AgentInterface:
         )
 
         try:
-            actions = JacMachineInterface.spawn_call(
-                ctx.entry_node.archetype,
-                AgentInterface.spawn_walker(
-                    walker_name="list_actions",
-                    attributes={"agent_id": agent_id},
-                    module_name="agent.action.list_actions",
-                ),
-            ).actions
-
-            if actions:
+            walker_obj = AgentInterface.spawn_walker(
+                            walker_name="list_actions",
+                            attributes={"agent_id": agent_id},
+                            module_name="agent.action.list_actions",
+                            entry_node=ctx.entry_node.archetype,
+                        )
+                                
+            if walker_obj and (actions := walker_obj.actions):
                 for action in actions:
                     if action.get("label") == action_label:
                         action_data = action
@@ -260,17 +256,19 @@ class AgentInterface:
                         continue  # Skip problematic files or return error if critical
 
             # Execute the walker
-            walker_response = JacMachineInterface.spawn_call(
-                ctx.entry_node.archetype,
-                AgentInterface.spawn_walker(
-                    walker_name=walker,
-                    attributes=attributes,
-                    module_name=f"{module_root}.{walker}",
-                ),
-            ).response
+            response = None
+            walker_obj = AgentInterface.spawn_walker(
+                            walker_name=walker,
+                            attributes=attributes,
+                            module_name=f"{module_root}.{walker}",
+                            entry_node=ctx.entry_node.archetype,
+                        )
+            
+            if walker_obj and walker_obj.response:
+                response = walker_obj.response
+            
             ctx.close()
-
-            return walker_response
+            return response
 
         except Exception as e:
             AgentInterface.EXPIRATION = None
@@ -315,7 +313,7 @@ class AgentInterface:
         )
 
         try:
-            walker = AgentInterface.spawn_walker(
+            walker_obj = AgentInterface.spawn_walker(
                     walker_name="interact",
                     attributes={
                         "agent_id": payload.agent_id,
@@ -329,17 +327,11 @@ class AgentInterface:
                         "reporting": False,
                     },
                     module_name="jivas.agent.action.interact",
+                    entry_node=ctx.entry_node.archetype
                 )
             
-            if not walker:
-                raise ValueError(f"Unable to spawn interact walker, module not loaded.")
-            
-            AgentInterface.LOGGER.warning(ctx.entry_node.archetype)
-            
-            response = JacPlugin.spawn(
-                walker,
-                ctx.entry_node.archetype,
-            )
+            if not walker_obj:
+                raise ValueError("Unable to spawn walker interact")
 
             if payload.streaming:
                 # since streaming occurs asynchronously, we'll need to close the context for writebacks here
@@ -348,12 +340,12 @@ class AgentInterface:
 
                 ctx.close()
                 if (
-                    response is not None
-                    and hasattr(response, "generator")
-                    and hasattr(response, "interaction_node")
+                    walker_obj is not None
+                    and hasattr(walker_obj, "generator")
+                    and hasattr(walker_obj, "interaction_node")
                 ):
 
-                    interaction_node = response.interaction_node
+                    interaction_node = walker_obj.interaction_node
 
                     async def generate(
                         generator: Iterator, request: Request
@@ -395,16 +387,16 @@ class AgentInterface:
                             try:
                                 interaction_node.set_text_message(message=full_text)
                                 interaction_node.add_tokens(total_tokens)
-                                JacMachineInterface.spawn_call(
-                                    NodeAnchor.ref(interaction_node.id).archetype,
-                                    AgentInterface.spawn_walker(
-                                        walker_name="update_interaction",
-                                        attributes={
-                                            "interaction_data": interaction_node.export(),
-                                        },
-                                        module_name="jivas.agent.memory.update_interaction",
-                                    ),
-                                )
+                                
+                                AgentInterface.spawn_walker(
+                                    walker_name="update_interaction",
+                                    attributes={
+                                        "interaction_data": interaction_node.export(),
+                                    },
+                                    module_name="jivas.agent.memory.update_interaction",
+                                    entry_node=NodeAnchor.ref(interaction_node.id).archetype
+                                ),
+                                
                             finally:
                                 if actx:
                                     actx.close()
@@ -421,22 +413,20 @@ class AgentInterface:
                             try:
                                 interaction_node.set_text_message(message=full_text)
                                 interaction_node.add_tokens(total_tokens)
-                                JacMachineInterface.spawn_call(
-                                    NodeAnchor.ref(interaction_node.id).archetype,
-                                    AgentInterface.spawn_walker(
-                                        walker_name="update_interaction",
-                                        attributes={
-                                            "interaction_data": interaction_node.export(),
-                                        },
-                                        module_name="jivas.agent.memory.update_interaction",
-                                    ),
+                                AgentInterface.spawn_walker(
+                                    walker_name="update_interaction",
+                                    attributes={
+                                        "interaction_data": interaction_node.export(),
+                                    },
+                                    module_name="jivas.agent.memory.update_interaction",
+                                    entry_node=NodeAnchor.ref(interaction_node.id).archetype
                                 )
                             finally:
                                 if actx:
                                     actx.close()
 
                     return StreamingResponse(
-                        generate(response.generator, request),
+                        generate(walker_obj.generator, request),
                         media_type="text/event-stream",
                     )
 
@@ -447,7 +437,7 @@ class AgentInterface:
                     return {}
 
             else:
-                response = response.response
+                response = walker_obj.response
                 ctx.close()
                 return response if response else {}
 
@@ -480,18 +470,19 @@ class AgentInterface:
         )
 
         try:
-            response = JacMachineInterface.spawn_call(
-                ctx.entry_node.archetype,
-                AgentInterface.spawn_walker(
-                    walker_name="pulse",
-                    attributes={
-                        "action_label": action_label,
-                        "agent_id": agent_id,
-                        "reporting": True,
-                    },
-                    module_name="agent.action.pulse",
-                ),
-            ).response
+            walker_obj = AgentInterface.spawn_walker(
+                        walker_name="pulse",
+                        attributes={
+                            "action_label": action_label,
+                            "agent_id": agent_id,
+                            "reporting": True,
+                        },
+                        module_name="agent.action.pulse",
+                        entry_node=ctx.entry_node.archetype
+                    )
+            if walker_obj:
+                response = walker_obj.response
+                
         except Exception as e:
             AgentInterface.EXPIRATION = None
             AgentInterface.LOGGER.error(
@@ -596,7 +587,7 @@ class AgentInterface:
         return {}
 
     @staticmethod
-    def load_context(entry: NodeAnchor | None = None) -> Optional[ExecutionContext]:
+    def load_context(entry: NodeAnchor | None = None) -> Optional[JaseciContext]:
         """Load the execution context synchronously."""
         AgentInterface.get_user_context()
         return AgentInterface.get_jaseci_context(entry, AgentInterface.ROOT_ID)
@@ -604,7 +595,7 @@ class AgentInterface:
     @staticmethod
     async def load_context_async(
         entry: NodeAnchor | None = None,
-    ) -> Optional[ExecutionContext]:
+    ) -> Optional[JaseciContext]:
         """Load the execution context asynchronously."""
         ctx = await AgentInterface.get_user_context_async()
         if ctx:
@@ -614,25 +605,20 @@ class AgentInterface:
         return AgentInterface.get_jaseci_context(entry, AgentInterface.ROOT_ID)
 
     @staticmethod
-    def get_jaseci_context(entry: NodeAnchor | None, root_id: str) -> ExecutionContext:
+    def get_jaseci_context(entry: NodeAnchor | None, root_id: str) -> JaseciContext:
         """Build the execution context for the agent."""
 
+        # load the user root graph
+        entry_node = entry or NodeAnchor.ref(f"n:root:{root_id}")
+        
         try:
-            ctx = ExecutionContext()
-            ctx.base = ctx.get_root()
+            ctx = JaseciContext.create(None, entry_node)
         except Exception as e:
             AgentInterface.LOGGER.error(
                 f"an exception occurred: {e}, {traceback.format_exc()}"
             )
             return None
-
-        ctx.mem = MongoDB()
-        ctx.reports = []
-        ctx.status = 200
-
-        # load the user root graph
-        user_root = NodeAnchor.ref(f"n:root:{root_id}")
-
+        
         if not isinstance(system_root := ctx.mem.find_by_id(SUPER_ROOT), NodeAnchor):
             system_root = NodeAnchor(
                 archetype=object.__new__(Root),
@@ -646,9 +632,9 @@ class AgentInterface:
             NodeAnchor.Collection.insert_one(system_root.serialize())
             system_root.sync_hash()
             ctx.mem.set(system_root.id, system_root)
-
+        
         ctx.system_root = system_root
-        ctx.root = user_root if user_root else system_root
+        ctx.root = entry_node if entry_node else system_root
         ctx.entry_node = entry if entry else ctx.root
 
         if _ctx := JASECI_CONTEXT.get(None):
