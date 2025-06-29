@@ -16,17 +16,24 @@ import aiohttp
 import requests
 from fastapi import File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
-from jac_cloud.core.archetype import AnchorState, Permission, Root
+from jac_cloud.core.archetype import (
+    WalkerArchetype, 
+    NodeAnchor,
+    AnchorState, 
+    Permission, 
+    Root
+)
 from jac_cloud.core.context import (
     JASECI_CONTEXT,
     SUPER_ROOT,
     SUPER_ROOT_ID,
     ExecutionContext,
-    JaseciContext,
+)
+from jac_cloud.plugin.jaseci import (
+    JacPlugin
 )
 from jac_cloud.core.memory import MongoDB
-from jac_cloud.plugin.jaseci import NodeAnchor
-from jaclang.runtimelib.machine import JacMachineInterface
+from jaclang.runtimelib.machine import JacMachineInterface, JacMachine
 from pydantic import BaseModel
 
 
@@ -39,67 +46,27 @@ class AgentInterface:
     TOKEN = ""
     EXPIRATION = None
     LOGGER = logging.getLogger(__name__)
-
-    @staticmethod
-    def load_module(module_name: str) -> None:
-        """Load any module by name"""
-        # Get the list of modules
-        modules = JacMachineInterface.list_modules()
-
-        # Search for the exact module name in the list of modules
-        for mod in modules:
-            if mod.endswith(module_name):
-                module_name = mod
-                break
-
-        try:
-            module_type = types.ModuleType(module_name)
-            return JacMachineInterface.load_module(module_name, module_type)
-        except Exception as e:
-            raise ValueError(f"Unable to load module {module_name}: {e}")
         
     @staticmethod
     def spawn_walker(
-        walker_name: str, module_name: str, attributes: dict
-    ) -> JacMachineInterface.Walker:
+        walker_name: str, attributes: dict, module_name: str
+    ) -> WalkerArchetype:
         """Spawn any walker by name, located in module"""
         # Get the list of modules
-        modules = JacMachineInterface.list_modules()
-
-        # Search for the exact module name in the list of modules
-        for mod in modules:
-            if mod.endswith(module_name):
-                module_name = mod
-                break
-
+        
         try:
-            walker = JacMachineInterface.spawn_walker(walker_name, attributes, module_name)
+            module = f"{module_name}"
+             # see if the action module is actually loaded
+            # if not JacMachine.loaded_modules.get(module):
+            #     raise ValueError(f"Unable to spawn: {walker_name}, module not loaded.")
+        
+            walker = JacMachine.spawn_walker(walker_name, attributes, module)
+            AgentInterface.LOGGER.warning(type(walker))
+            
             return walker
         except Exception as e:
-            raise ValueError(
-                f"Unable to spawn walker {walker_name} in module {module_name}: {e}"
-            )
-
-    @staticmethod
-    def spawn_node(node_name: str, module_name: str, attributes: dict) -> JacMachineInterface.Node:
-        """Spawn any node by name, located in module"""
-        # Get the list of modules
-        modules = JacMachineInterface.list_modules()
-        
-        # Search for the exact module name in the list of modules
-        for mod in modules:
-            if mod.endswith(module_name):
-                module_name = mod
-                break
-                
-        try:
-            node = JacMachineInterface.spawn_node(node_name, attributes, module_name)
-            # TODO: Remove after testing
-            AgentInterface.LOGGER.warning(node)
-            return node
-        except Exception as e:
-            raise ValueError(
-                f"Unable to spawn node {node_name} in module {module_name}: {e}"
+            AgentInterface.LOGGER.error(
+                f"Unable to spawn walker {walker_name}: {e}"
             )
 
     @staticmethod
@@ -147,7 +114,7 @@ class AgentInterface:
             module = f"{module_root}.{walker}"
             try:
                 response = JacMachineInterface.spawn_call(
-                    ctx.entry_node.architype,
+                    ctx.entry_node.archetype,
                     AgentInterface.spawn_walker(
                         walker_name=walker,
                         attributes={
@@ -196,7 +163,7 @@ class AgentInterface:
 
         try:
             actions = JacMachineInterface.spawn_call(
-                ctx.entry_node.architype,
+                ctx.entry_node.archetype,
                 AgentInterface.spawn_walker(
                     walker_name="list_actions",
                     attributes={"agent_id": agent_id},
@@ -294,7 +261,7 @@ class AgentInterface:
 
             # Execute the walker
             walker_response = JacMachineInterface.spawn_call(
-                ctx.entry_node.architype,
+                ctx.entry_node.archetype,
                 AgentInterface.spawn_walker(
                     walker_name=walker,
                     attributes=attributes,
@@ -348,9 +315,7 @@ class AgentInterface:
         )
 
         try:
-            response = JacMachineInterface.spawn_call(
-                ctx.entry_node.architype,
-                AgentInterface.spawn_walker(
+            walker = AgentInterface.spawn_walker(
                     walker_name="interact",
                     attributes={
                         "agent_id": payload.agent_id,
@@ -364,7 +329,16 @@ class AgentInterface:
                         "reporting": False,
                     },
                     module_name="jivas.agent.action.interact",
-                ),
+                )
+            
+            if not walker:
+                raise ValueError(f"Unable to spawn interact walker, module not loaded.")
+            
+            AgentInterface.LOGGER.warning(ctx.entry_node.archetype)
+            
+            response = JacPlugin.spawn(
+                walker,
+                ctx.entry_node.archetype,
             )
 
             if payload.streaming:
@@ -422,7 +396,7 @@ class AgentInterface:
                                 interaction_node.set_text_message(message=full_text)
                                 interaction_node.add_tokens(total_tokens)
                                 JacMachineInterface.spawn_call(
-                                    NodeAnchor.ref(interaction_node.id).architype,
+                                    NodeAnchor.ref(interaction_node.id).archetype,
                                     AgentInterface.spawn_walker(
                                         walker_name="update_interaction",
                                         attributes={
@@ -448,7 +422,7 @@ class AgentInterface:
                                 interaction_node.set_text_message(message=full_text)
                                 interaction_node.add_tokens(total_tokens)
                                 JacMachineInterface.spawn_call(
-                                    NodeAnchor.ref(interaction_node.id).architype,
+                                    NodeAnchor.ref(interaction_node.id).archetype,
                                     AgentInterface.spawn_walker(
                                         walker_name="update_interaction",
                                         attributes={
@@ -507,7 +481,7 @@ class AgentInterface:
 
         try:
             response = JacMachineInterface.spawn_call(
-                ctx.entry_node.architype,
+                ctx.entry_node.archetype,
                 AgentInterface.spawn_walker(
                     walker_name="pulse",
                     attributes={
@@ -644,8 +618,8 @@ class AgentInterface:
         """Build the execution context for the agent."""
 
         try:
-            ctx = JaseciContext()
-            ctx.base = ExecutionContext.get()
+            ctx = ExecutionContext()
+            ctx.base = ctx.get_root()
         except Exception as e:
             AgentInterface.LOGGER.error(
                 f"an exception occurred: {e}, {traceback.format_exc()}"
@@ -661,14 +635,14 @@ class AgentInterface:
 
         if not isinstance(system_root := ctx.mem.find_by_id(SUPER_ROOT), NodeAnchor):
             system_root = NodeAnchor(
-                architype=object.__new__(Root),
+                archetype=object.__new__(Root),
                 id=SUPER_ROOT_ID,
                 access=Permission(),
                 state=AnchorState(connected=True),
                 persistent=True,
                 edges=[],
             )
-            system_root.architype.__jac__ = system_root
+            system_root.archetype.__jac__ = system_root
             NodeAnchor.Collection.insert_one(system_root.serialize())
             system_root.sync_hash()
             ctx.mem.set(system_root.id, system_root)
