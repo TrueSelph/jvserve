@@ -32,8 +32,7 @@ from jac_cloud.core.context import (
 from jac_cloud.plugin.jaseci import (
     JacPlugin
 )
-from jac_cloud.core.memory import MongoDB
-from jaclang.runtimelib.machine import JacMachineInterface, JacMachine
+from jaclang.runtimelib.machine import JacMachine
 from pydantic import BaseModel
 
 
@@ -57,7 +56,12 @@ class AgentInterface:
         """Spawn any walker by name, located in module"""
         
         try:     
-            # first try to get the walker object
+            
+            # check for loaded module first
+            if module_name not in JacMachine.list_modules():
+                raise ValueError("module {module_name} not loaded")
+            
+            # try to get the walker object
             walker_obj = JacMachine.spawn_walker(walker_name, attributes, module_name) 
             # execute the walker on the entry node
             return JacPlugin.spawn(walker_obj, entry_node) 
@@ -257,10 +261,11 @@ class AgentInterface:
 
             # Execute the walker
             response = None
+            module_name = f"{module_root}.{walker}"            
             walker_obj = AgentInterface.spawn_walker(
                             walker_name=walker,
                             attributes=attributes,
-                            module_name=f"{module_root}.{walker}",
+                            module_name=module_name,
                             entry_node=ctx.entry_node.archetype,
                         )
             
