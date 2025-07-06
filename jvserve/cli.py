@@ -2,18 +2,17 @@
 
 import logging
 import os
-import time
 from contextlib import asynccontextmanager
 from pickle import load
 from typing import AsyncIterator, Optional
 
 from dotenv import load_dotenv
 from fastapi.responses import FileResponse, Response, StreamingResponse
+from jac_cloud.jaseci.main import FastAPI
 from jac_cloud.jaseci.security import authenticator
 from jac_cloud.plugin.jaseci import NodeAnchor
-from jaclang.cli.cmdreg import cmd_registry
-from jac_cloud.jaseci.main import FastAPI
 from jaclang import JacMachine as Jac
+from jaclang.cli.cmdreg import cmd_registry
 from jaclang.runtimelib.machine import hookimpl
 from uvicorn import run as _run
 
@@ -27,6 +26,7 @@ from jvserve.lib.file_interface import (
 from jvserve.lib.jvlogger import JVLogger
 
 load_dotenv(".env")
+
 
 class JacCmd:
     """Jac CLI."""
@@ -45,7 +45,7 @@ class JacCmd:
             workers: Optional[int] = None,
         ) -> None:
             """Launch the jac application."""
-            
+
             # set up logging
             JVLogger.setup_logging(level=loglevel)
             logger = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ class JacCmd:
             base, mod = os.path.split(filename)
             base = base if base else "./"
             mod = mod[:-4]
-            
+
             FastAPI.enable()
             if filename.endswith(".jac"):
                 Jac.jac_import(target=mod, base_path=base, override_name="__main__")
@@ -63,7 +63,7 @@ class JacCmd:
                     Jac.jac_import(target=mod, base_path=base, override_name="__main__")
             else:
                 raise ValueError("Not a valid file!\nOnly supports `.jac` and `.jir`")
-            
+
             AgentInterface.HOST = host
             AgentInterface.PORT = port
 

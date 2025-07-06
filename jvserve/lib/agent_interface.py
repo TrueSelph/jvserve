@@ -6,10 +6,9 @@ import logging
 import os
 import string
 import time
-import types
 import traceback
 from asyncio import sleep
-from typing import Any, AsyncGenerator, Dict, Iterator, List, Optional, Union
+from typing import Any, AsyncGenerator, Dict, Iterator, List, Optional
 from urllib.parse import quote, unquote
 
 import aiohttp
@@ -17,21 +16,19 @@ import requests
 from fastapi import File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from jac_cloud.core.archetype import (
-    WalkerArchetype, 
+    AnchorState,
     NodeAnchor,
-    AnchorState, 
-    Permission, 
-    Root
+    Permission,
+    Root,
+    WalkerArchetype,
 )
 from jac_cloud.core.context import (
     JASECI_CONTEXT,
     SUPER_ROOT,
     SUPER_ROOT_ID,
-    JaseciContext
+    JaseciContext,
 )
-from jac_cloud.plugin.jaseci import (
-    JacPlugin
-)
+from jac_cloud.plugin.jaseci import JacPlugin
 from jaclang.runtimelib.machine import JacMachine
 from pydantic import BaseModel
 
@@ -45,30 +42,27 @@ class AgentInterface:
     TOKEN = ""
     EXPIRATION = None
     LOGGER = logging.getLogger(__name__)
-        
+
     @staticmethod
     def spawn_walker(
-        walker_name: str, 
-        attributes: dict, 
-        module_name: str, 
-        entry_node:NodeAnchor
-    ) -> Union[WalkerArchetype, None]:
+        walker_name: str, attributes: dict, module_name: str, entry_node: NodeAnchor
+    ) -> Optional[WalkerArchetype]:
         """Spawn any walker by name, located in module"""
-        
-        try:     
-            
+
+        try:
+
             # check for loaded module first
             if module_name not in JacMachine.list_modules():
                 raise ValueError("module {module_name} not loaded")
-            
+
             # try to get the walker object
-            walker_obj = JacMachine.spawn_walker(walker_name, attributes, module_name) 
+            walker_obj = JacMachine.spawn_walker(walker_name, attributes, module_name)
             # execute the walker on the entry node
-            return JacPlugin.spawn(walker_obj, entry_node) 
-                  
+            return JacPlugin.spawn(walker_obj, entry_node)
+
         except Exception as e:
             AgentInterface.LOGGER.error(
-                f"Unable to spawn walker {walker_name}: {e}"
+                f"Unable to spawn walker {walker_name}: {e}, {traceback.format_exc()}"
             )
 
         return None
@@ -118,17 +112,17 @@ class AgentInterface:
             module = f"{module_root}.{walker}"
             try:
                 walker_obj = AgentInterface.spawn_walker(
-                                walker_name=walker,
-                                attributes={
-                                    "headers": request.headers,
-                                    "agent_id": agent_id,
-                                    "params": params,
-                                    "reporting": False,
-                                },
-                                module_name=module,
-                                entry_node=ctx.entry_node.archetype,
-                            )
-                                    
+                    walker_name=walker,
+                    attributes={
+                        "headers": request.headers,
+                        "agent_id": agent_id,
+                        "params": params,
+                        "reporting": False,
+                    },
+                    module_name=module,
+                    entry_node=ctx.entry_node.archetype,
+                )
+
                 if walker_obj and (response := walker_obj.response):
                     if isinstance(response, str):
                         response = json.loads(response)
@@ -165,12 +159,12 @@ class AgentInterface:
 
         try:
             walker_obj = AgentInterface.spawn_walker(
-                            walker_name="list_actions",
-                            attributes={"agent_id": agent_id},
-                            module_name="agent.action.list_actions",
-                            entry_node=ctx.entry_node.archetype,
-                        )
-                                
+                walker_name="list_actions",
+                attributes={"agent_id": agent_id},
+                module_name="agent.action.list_actions",
+                entry_node=ctx.entry_node.archetype,
+            )
+
             if walker_obj and (actions := walker_obj.actions):
                 for action in actions:
                     if action.get("label") == action_label:
@@ -261,17 +255,17 @@ class AgentInterface:
 
             # Execute the walker
             response = None
-            module_name = f"{module_root}.{walker}"            
+            module_name = f"{module_root}.{walker}"
             walker_obj = AgentInterface.spawn_walker(
-                            walker_name=walker,
-                            attributes=attributes,
-                            module_name=module_name,
-                            entry_node=ctx.entry_node.archetype,
-                        )
-            
+                walker_name=walker,
+                attributes=attributes,
+                module_name=module_name,
+                entry_node=ctx.entry_node.archetype,
+            )
+
             if walker_obj and walker_obj.response:
                 response = walker_obj.response
-            
+
             ctx.close()
             return response
 
@@ -319,22 +313,22 @@ class AgentInterface:
 
         try:
             walker_obj = AgentInterface.spawn_walker(
-                    walker_name="interact",
-                    attributes={
-                        "agent_id": payload.agent_id,
-                        "utterance": payload.utterance or "",
-                        "channel": payload.channel or "",
-                        "session_id": session_id or "",
-                        "tts": payload.tts or False,
-                        "verbose": payload.verbose or False,
-                        "data": payload.data or [],
-                        "streaming": payload.streaming or False,
-                        "reporting": False,
-                    },
-                    module_name="jivas.agent.action.interact",
-                    entry_node=ctx.entry_node.archetype
-                )
-            
+                walker_name="interact",
+                attributes={
+                    "agent_id": payload.agent_id,
+                    "utterance": payload.utterance or "",
+                    "channel": payload.channel or "",
+                    "session_id": session_id or "",
+                    "tts": payload.tts or False,
+                    "verbose": payload.verbose or False,
+                    "data": payload.data or [],
+                    "streaming": payload.streaming or False,
+                    "reporting": False,
+                },
+                module_name="jivas.agent.action.interact",
+                entry_node=ctx.entry_node.archetype,
+            )
+
             if not walker_obj:
                 raise ValueError("Unable to spawn walker interact")
 
@@ -392,16 +386,18 @@ class AgentInterface:
                             try:
                                 interaction_node.set_text_message(message=full_text)
                                 interaction_node.add_tokens(total_tokens)
-                                
+
                                 AgentInterface.spawn_walker(
                                     walker_name="update_interaction",
                                     attributes={
                                         "interaction_data": interaction_node.export(),
                                     },
                                     module_name="jivas.agent.memory.update_interaction",
-                                    entry_node=NodeAnchor.ref(interaction_node.id).archetype
-                                ),
-                                
+                                    entry_node=NodeAnchor.ref(
+                                        interaction_node.id
+                                    ).archetype,
+                                )
+
                             finally:
                                 if actx:
                                     actx.close()
@@ -424,7 +420,9 @@ class AgentInterface:
                                         "interaction_data": interaction_node.export(),
                                     },
                                     module_name="jivas.agent.memory.update_interaction",
-                                    entry_node=NodeAnchor.ref(interaction_node.id).archetype
+                                    entry_node=NodeAnchor.ref(
+                                        interaction_node.id
+                                    ).archetype,
                                 )
                             finally:
                                 if actx:
@@ -476,18 +474,18 @@ class AgentInterface:
 
         try:
             walker_obj = AgentInterface.spawn_walker(
-                        walker_name="pulse",
-                        attributes={
-                            "action_label": action_label,
-                            "agent_id": agent_id,
-                            "reporting": True,
-                        },
-                        module_name="agent.action.pulse",
-                        entry_node=ctx.entry_node.archetype
-                    )
+                walker_name="pulse",
+                attributes={
+                    "action_label": action_label,
+                    "agent_id": agent_id,
+                    "reporting": True,
+                },
+                module_name="agent.action.pulse",
+                entry_node=ctx.entry_node.archetype,
+            )
             if walker_obj:
                 response = walker_obj.response
-                
+
         except Exception as e:
             AgentInterface.EXPIRATION = None
             AgentInterface.LOGGER.error(
@@ -615,7 +613,7 @@ class AgentInterface:
 
         # load the user root graph
         entry_node = entry or NodeAnchor.ref(f"n:root:{root_id}")
-        
+
         try:
             ctx = JaseciContext.create(None, entry_node)
         except Exception as e:
@@ -623,7 +621,7 @@ class AgentInterface:
                 f"an exception occurred: {e}, {traceback.format_exc()}"
             )
             return None
-        
+
         if not isinstance(system_root := ctx.mem.find_by_id(SUPER_ROOT), NodeAnchor):
             system_root = NodeAnchor(
                 archetype=object.__new__(Root),
@@ -637,7 +635,7 @@ class AgentInterface:
             NodeAnchor.Collection.insert_one(system_root.serialize())
             system_root.sync_hash()
             ctx.mem.set(system_root.id, system_root)
-        
+
         ctx.system_root = system_root
         ctx.root = entry_node if entry_node else system_root
         ctx.entry_node = entry if entry else ctx.root
