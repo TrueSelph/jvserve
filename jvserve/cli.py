@@ -1,5 +1,6 @@
 """Module for registering CLI plugins for jaseci."""
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -42,9 +43,11 @@ class JacCmd:
             host: str = "0.0.0.0",
             port: int = 8000,
             loglevel: str = "INFO",
-            workers: Optional[int] = None,
         ) -> None:
             """Launch the jac application."""
+
+            AgentInterface.HOST = host
+            AgentInterface.PORT = port
 
             # set up logging
             JVLogger.setup_logging(level=loglevel)
@@ -64,13 +67,18 @@ class JacCmd:
             else:
                 raise ValueError("Not a valid file!\nOnly supports `.jac` and `.jir`")
 
-            AgentInterface.HOST = host
-            AgentInterface.PORT = port
+            # Define post-startup function to run AFTER server is ready
+            async def post_startup() -> None:
+                """Function to execute after server is fully operational"""
+                # Minimal delay allows server to start listening
+                await asyncio.sleep(0.01)
+                await AgentInterface.init_agents()
 
             # set up lifespan events
             async def on_startup() -> None:
                 # Perform initialization actions here
                 logger.info("JIVAS is starting up...")
+                asyncio.create_task(post_startup())
 
             async def on_shutdown() -> None:
                 # Perform initialization actions here
@@ -105,7 +113,7 @@ class JacCmd:
             )
 
             # run the app
-            _run(FastAPI.get(), host=host, port=port, lifespan="on", workers=workers)
+            FastAPI.start(host=host, port=port)
 
         @cmd_registry.register
         def jvfileserve(

@@ -496,6 +496,36 @@ class AgentInterface:
         return response if response else {}
 
     @staticmethod
+    async def init_agents() -> None:
+        """Trigger init agents."""
+
+        ctx = await AgentInterface.load_context_async()
+
+        if not ctx:
+            return
+
+        try:
+            walker_obj = AgentInterface.spawn_walker(
+                walker_name="init_agents",
+                attributes={
+                    "reporting": False,
+                },
+                module_name="jivas.agent.core.init_agents",
+                entry_node=ctx.entry_node.archetype,
+            )
+
+            if not walker_obj:
+                raise ValueError("Unable to spawn walker interact")
+
+        except Exception as e:
+            AgentInterface.EXPIRATION = None
+            AgentInterface.LOGGER.error(
+                f"an exception occurred: {e}, {traceback.format_exc()}"
+            )
+            ctx.close()
+            return
+
+    @staticmethod
     def api_pulse(action_label: str, agent_id: str) -> dict:
         """Interact with the agent pulse using API"""
 
@@ -610,6 +640,11 @@ class AgentInterface:
     @staticmethod
     def get_jaseci_context(entry: NodeAnchor | None, root_id: str) -> JaseciContext:
         """Build the execution context for the agent."""
+
+        # if root_id is not set, we cannot proceed
+        if not root_id:
+            AgentInterface.LOGGER.error("root_id is not set; cannot proceed.")
+            return None
 
         # load the user root graph
         entry_node = entry or NodeAnchor.ref(f"n:root:{root_id}")
