@@ -26,6 +26,9 @@ from jvserve.lib.file_interface import (
 )
 from jvserve.lib.jvlogger import JVLogger
 
+# quiet the jac_cloud logger down to errors only
+# jac cloud dumps payload details to console which makes it hard to debug in JIVAS
+os.environ["LOGGER_LEVEL"] = "ERROR"
 load_dotenv(".env")
 
 
