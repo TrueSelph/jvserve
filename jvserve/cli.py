@@ -7,9 +7,10 @@ from contextlib import asynccontextmanager
 from pickle import load
 from typing import AsyncIterator, Optional
 
+import aiohttp
 from dotenv import load_dotenv
 from fastapi.responses import FileResponse, Response, StreamingResponse
-from jac_cloud.jaseci.main import FastAPI
+from jac_cloud.jaseci.main import FastAPI  # type: ignore
 from jac_cloud.jaseci.security import authenticator
 from jac_cloud.plugin.jaseci import NodeAnchor
 from jaclang import JacMachine as Jac
@@ -47,14 +48,14 @@ class JacCmd:
             port: int = 8000,
             loglevel: str = "INFO",
         ) -> None:
-            """Launch the jac application."""
+            """Launch the jac application with proper server readiness handling."""
 
-            AgentInterface.HOST = host
-            AgentInterface.PORT = port
-
-            # set up logging
+            # Set up logging
             JVLogger.setup_logging(level=loglevel)
             logger = logging.getLogger(__name__)
+
+            # Create agent interface instance with configuration
+            agent_interface = AgentInterface.get_instance(host=host, port=port)
 
             base, mod = os.path.split(filename)
             base = base if base else "./"
@@ -70,21 +71,46 @@ class JacCmd:
             else:
                 raise ValueError("Not a valid file!\nOnly supports `.jac` and `.jir`")
 
+            # Add health check endpoint
+            FastAPI.get().add_api_route(
+                "/health", lambda: {"status": "ok"}, methods=["GET"]
+            )
+
             # Define post-startup function to run AFTER server is ready
             async def post_startup() -> None:
-                """Function to execute after server is fully operational"""
-                # Minimal delay allows server to start listening
-                await asyncio.sleep(0.01)
-                await AgentInterface.init_agents()
+                """Wait for server to be ready before initializing agents"""
+                health_url = f"http://{host}:{port}/health"
+                max_retries = 10
+                retry_delay = 1.0
+
+                for attempt in range(max_retries):
+                    try:
+                        async with aiohttp.ClientSession() as session:
+                            async with session.get(health_url, timeout=1) as response:
+                                if response.status == 200:
+                                    logger.info(
+                                        "Server is ready, initializing agents..."
+                                    )
+                                    await agent_interface.init_agents()
+                                    return
+                    except (aiohttp.ClientConnectorError, asyncio.TimeoutError) as e:
+                        logger.warning(
+                            f"Server not ready yet (attempt {attempt + 1} / {max_retries}): {e}"
+                        )
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 1.5  # Exponential backoff
+
+                logger.error(
+                    "Server did not become ready in time. Agent initialization skipped."
+                )
 
             # set up lifespan events
             async def on_startup() -> None:
-                # Perform initialization actions here
                 logger.info("JIVAS is starting up...")
+                # Start initialization in background without blocking
                 asyncio.create_task(post_startup())
 
             async def on_shutdown() -> None:
-                # Perform initialization actions here
                 logger.info("JIVAS is shutting down...")
                 AgentPulse.stop()
 
@@ -101,21 +127,26 @@ class JacCmd:
 
             # Setup custom routes
             FastAPI.get().add_api_route(
-                "/interact", endpoint=AgentInterface.interact, methods=["POST"]
+                "/interact", endpoint=agent_interface.interact, methods=["POST"]
             )
             FastAPI.get().add_api_route(
-                "/webhook/{key}",
-                endpoint=AgentInterface.webhook_exec,
-                methods=["GET", "POST"],
+                "/action/webhook/{key}",
+                endpoint=agent_interface.action_webhook_exec,
+                methods=["GET"],
+            )
+            FastAPI.get().add_api_route(
+                "/action/webhook/{key}",
+                endpoint=agent_interface.action_webhook_exec,
+                methods=["POST"],
             )
             FastAPI.get().add_api_route(
                 "/action/walker",
-                endpoint=AgentInterface.action_walker_exec,
+                endpoint=agent_interface.action_walker_exec,
                 methods=["POST"],
                 dependencies=authenticator,
             )
 
-            # run the app
+            # Run the app
             FastAPI.start(host=host, port=port)
 
         @cmd_registry.register
