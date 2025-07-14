@@ -64,18 +64,21 @@ class JacInterface:
             return (self.root_id, self.token, self.expiration)
 
     def get_context(self, request: Request | None = None) -> Optional[JaseciContext]:
-        """Get Jaseci context with proper thread safety"""
+        """Get Jaseci context with proper thread safety."""
 
         state = self.get_state()
-        if not state or self.is_valid() is False:
+        if not state or not self.is_valid():
             self.logger.error("Failed to get valid state for Jaseci context")
             return None
 
         try:
             root_id = state[0]
             entry_node = NodeAnchor.ref(f"n:root:{root_id}")  # type: ignore
-            ctx = JaseciContext.create(request, entry_node)
+            if not entry_node:
+                self.logger.error("Failed to resolve entry node from root_id")
+                return None
 
+            ctx = JaseciContext.create(request, entry_node)
             if not ctx:
                 self.logger.error("Failed to create JaseciContext with entry node")
                 return None
@@ -83,17 +86,22 @@ class JacInterface:
             ctx.system_root = entry_node
             ctx.root_state = entry_node
 
-            if _ctx := JASECI_CONTEXT.get(None):
-                _ctx.close()
-            JASECI_CONTEXT.set(ctx)
+            # Clean up any existing context before setting new one
+            existing_ctx = JASECI_CONTEXT.get(None)
+            if existing_ctx:
+                try:
+                    existing_ctx.close()
+                except Exception as e:
+                    self.logger.warning(f"Error while closing existing context: {e}")
 
+            JASECI_CONTEXT.set(ctx)
             return ctx
+
         except Exception as e:
             self.logger.error(
                 f"Failed to create JaseciContext: {e}\n{traceback.format_exc()}"
             )
-
-        return None
+            return None
 
     def spawn_walker(
         self,
