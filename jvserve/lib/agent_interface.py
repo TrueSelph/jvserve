@@ -59,7 +59,7 @@ class AgentInterface:
             self._cipher_alphabet = self._generate_cipher_alphabet()
         return self._cipher_alphabet
 
-    async def interact(self, payload: InteractPayload, request: Request) -> dict:
+    async def interact(self, payload: InteractPayload) -> dict:
         """Interact with an agent - fully async compatible"""
         try:
             walker_obj = await self._jac.spawn_walker_async(
@@ -216,7 +216,8 @@ class AgentInterface:
         module_root: Optional[str] = Form(None),  # noqa: B008
         walker: Optional[str] = Form(None),  # noqa: B008
         args: Optional[str] = Form(None),  # noqa: B008
-        attachments: List[UploadFile] = File(default_factory=list),  # noqa: B008
+        attachments: List[UploadFile] = File(default_factory=list),  # noqa: B008,
+        request: Request = None,  # noqa: B008
     ) -> JSONResponse:
         """Synchronous walker execution"""
         if not all([agent_id, module_root, walker]):

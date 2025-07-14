@@ -1,38 +1,37 @@
-""" JacInterface: A connection and context state provider for Jac Runtime."""
+"""JacInterface: A connection and context state provider for Jac Runtime."""
 
-import os
-import time
 import asyncio
 import logging
-import requests
+import os
 import threading
+import time
 import traceback
 from typing import Optional, Tuple
-from jac_cloud.plugin.jaseci import JacPlugin
-from jaclang.runtimelib.machine import JacMachine
+
+import requests
+from fastapi import Request
 from jac_cloud.core.archetype import (  # type: ignore
-    AnchorState,
     NodeAnchor,
-    Permission,
-    Root,
     WalkerArchetype,
 )
 from jac_cloud.core.context import (
     JASECI_CONTEXT,
-    SUPER_ROOT,
-    SUPER_ROOT_ID,
     JaseciContext,
 )
+from jac_cloud.plugin.jaseci import JacPlugin
+from jaclang.runtimelib.machine import JacMachine
+
 
 class JacInterface:
     """Thread-safe connection and context state provider for Jac Runtime with auto-authentication."""
-    def __init__(self, host: str = "localhost", port: int = 8000):
+
+    def __init__(self, host: str = "localhost", port: int = 8000) -> None:
         """Initialize JacInterface with host and port."""
         self.host = host
         self.port = port
         self.root_id = ""
         self.token = ""
-        self.expiration = None
+        self.expiration = 0.0
         self._lock = threading.RLock()  # Thread-safe lock
         self.logger = logging.getLogger(__name__)
 
@@ -48,15 +47,13 @@ class JacInterface:
         with self._lock:
             self.root_id = ""
             self.token = ""
-            self.expiration = None
+            self.expiration = 0.0
 
     def is_valid(self) -> bool:
         """Thread-safe validity check"""
         with self._lock:
             return bool(
-                self.token 
-                and self.expiration 
-                and self.expiration > time.time()
+                self.token and self.expiration and self.expiration > time.time()
             )
 
     def get_state(self) -> Tuple[str, str, Optional[float]]:
@@ -65,70 +62,67 @@ class JacInterface:
             self._authenticate()
         with self._lock:
             return (self.root_id, self.token, self.expiration)
-    
-    def get_context(self) -> Optional[JaseciContext]:
+
+    def get_context(self, request: Request | None = None) -> Optional[JaseciContext]:
         """Get Jaseci context with proper thread safety"""
+
+        # if ctx := JacPlugin.get_context():
+        #     return ctx
+
         state = self.get_state()
         if not state or self.is_valid() is False:
             self.logger.error("Failed to get valid state for Jaseci context")
             return None
-        
-        root_id = state[0]
-        try:
-            entry_node = NodeAnchor.ref(f"n:root:{root_id}")
-            ctx = JaseciContext.create(None, entry_node)
-            
-            if not isinstance(system_root := ctx.mem.find_by_id(SUPER_ROOT), NodeAnchor):
-                system_root = NodeAnchor(
-                    archetype=object.__new__(Root),
-                    id=SUPER_ROOT_ID,
-                    access=Permission(),
-                    state=AnchorState(connected=True),
-                    persistent=True,
-                    edges=[],
-                )
-                system_root.archetype.__jac__ = system_root
-                NodeAnchor.Collection.insert_one(system_root.serialize())
-                system_root.sync_hash()
-                ctx.mem.set(system_root.id, system_root)
 
-            ctx.system_root = system_root
-            ctx.root = system_root
-            ctx.entry_node = ctx.root
+        try:
+            root_id = state[0]
+            entry_node = NodeAnchor.ref(f"n:root:{root_id}")  # type: ignore
+            ctx = JaseciContext.create(request, entry_node)
+
+            if not ctx:
+                self.logger.error("Failed to create JaseciContext with entry node")
+                return None
 
             if _ctx := JASECI_CONTEXT.get(None):
                 _ctx.close()
             JASECI_CONTEXT.set(ctx)
-            
+
             return ctx
         except Exception as e:
-            self.logger.error(f"Failed to create JaseciContext: {e}\n{traceback.format_exc()}")
-            return None
+            self.logger.error(
+                f"Failed to create JaseciContext: {e}\n{traceback.format_exc()}"
+            )
+
+        return None
 
     def spawn_walker(
         self,
         walker_name: str | None,
         module_name: str,
-        attributes: dict = {},
+        attributes: dict = {},  # noqa: B006
+        request: Request | None = None,  # noqa: B006
     ) -> Optional[WalkerArchetype]:
         """Spawn walker with proper context handling and thread safety"""
-        
+
         if not all([walker_name, module_name]):
             self.logger.error("Missing required parameters for spawning walker")
             return None
-        
-        ctx = self.get_context()
+
+        ctx = self.get_context(request)
         if not ctx:
             return None
-        
+
         try:
             if module_name not in JacMachine.list_modules():
                 self.logger.error(f"Module {module_name} not loaded")
                 return None
-            
+
             entry_node = ctx.entry_node.archetype
-            walker_obj = JacMachine.spawn_walker(walker_name, attributes, module_name)
-            return JacPlugin.spawn(walker_obj, entry_node)
+
+            return JacPlugin.spawn(
+                JacMachine.spawn_walker(walker_name, attributes, module_name),
+                entry_node,
+            )
         except Exception as e:
             self.logger.error(f"Error spawning walker: {e}\n{traceback.format_exc()}")
             return None
@@ -137,7 +131,7 @@ class JacInterface:
                 ctx.close()
                 if JASECI_CONTEXT.get(None) == ctx:
                     JASECI_CONTEXT.set(None)
-        
+
     def _authenticate(self) -> None:
         """Thread-safe authentication with retry logic and improved error handling"""
         user = os.environ.get("JIVAS_USER")
@@ -153,9 +147,7 @@ class JacInterface:
             try:
                 # Try login first
                 response = requests.post(
-                    login_url, 
-                    json={"email": user, "password": password},
-                    timeout=15
+                    login_url, json={"email": user, "password": password}, timeout=15
                 )
                 self.logger.info(f"Login response status: {response.status_code}")
                 if response.status_code == 200:
@@ -164,25 +156,29 @@ class JacInterface:
 
                 # Register if login fails
                 reg_response = requests.post(
-                    register_url, 
-                    json={"email": user, "password": password},
-                    timeout=15
+                    register_url, json={"email": user, "password": password}, timeout=15
                 )
-                self.logger.info(f"Register response status: {reg_response.status_code}")
+                self.logger.info(
+                    f"Register response status: {reg_response.status_code}"
+                )
                 if reg_response.status_code == 201:
                     # Retry login after registration
                     login_response = requests.post(
-                        login_url, 
+                        login_url,
                         json={"email": user, "password": password},
-                        timeout=15
+                        timeout=15,
                     )
-                    self.logger.info(f"Retry login response status: {login_response.status_code}")
+                    self.logger.info(
+                        f"Retry login response status: {login_response.status_code}"
+                    )
                     if login_response.status_code == 200:
                         self._process_auth_response(login_response.json())
             except requests.exceptions.RequestException as e:
                 self.logger.error(f"Network error during authentication: {e}")
             except Exception as e:
-                self.logger.error(f"Authentication failed: {e}\n{traceback.format_exc()}")
+                self.logger.error(
+                    f"Authentication failed: {e}\n{traceback.format_exc()}"
+                )
                 self.reset()
 
     def _process_auth_response(self, response_data: dict) -> None:
@@ -191,11 +187,11 @@ class JacInterface:
         root_id = user_data.get("root_id", "")
         token = response_data.get("token", "")
         expiration = user_data.get("expiration")
-        
+
         if not all([root_id, token, expiration]):
             self.logger.error("Invalid authentication response")
             return
-            
+        self.logger.info(f"Authenticated successfully with root_id: {root_id}")
         self.update(root_id, token, expiration)
 
     # Async versions of methods
@@ -204,23 +200,15 @@ class JacInterface:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._authenticate)
 
-    async def get_context_async(self) -> Optional[JaseciContext]:
-        """Asynchronous wrapper for context creation"""
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self.get_context)
-
     async def spawn_walker_async(
         self,
         walker_name: str,
         module_name: str,
         attributes: dict,
+        request: Request | None = None,
     ) -> Optional[WalkerArchetype]:
         """Asynchronous wrapper for walker spawning"""
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
-            None, 
-            self.spawn_walker, 
-            walker_name, 
-            module_name,
-            attributes
+            None, self.spawn_walker, walker_name, module_name, attributes, request
         )
