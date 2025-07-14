@@ -66,9 +66,6 @@ class JacInterface:
     def get_context(self, request: Request | None = None) -> Optional[JaseciContext]:
         """Get Jaseci context with proper thread safety"""
 
-        # if ctx := JacPlugin.get_context():
-        #     return ctx
-
         state = self.get_state()
         if not state or self.is_valid() is False:
             self.logger.error("Failed to get valid state for Jaseci context")
@@ -82,6 +79,9 @@ class JacInterface:
             if not ctx:
                 self.logger.error("Failed to create JaseciContext with entry node")
                 return None
+
+            ctx.system_root = entry_node
+            ctx.root_state = entry_node
 
             if _ctx := JASECI_CONTEXT.get(None):
                 _ctx.close()
