@@ -199,7 +199,7 @@ class JacInterface:
         if not all([root_id, token, expiration]):
             self.logger.error("Invalid authentication response")
             return
-        self.logger.info(f"Authenticated successfully with root_id: {root_id}")
+
         self.update(root_id, token, expiration)
 
     # Async versions of methods
