@@ -26,7 +26,7 @@ class InteractPayload(BaseModel):
     session_id: Optional[str] = None
     tts: Optional[bool] = None
     verbose: Optional[bool] = None
-    data: Optional[list[dict]] = None
+    data: Optional[dict] = None
     streaming: Optional[bool] = None
 
 
@@ -72,7 +72,7 @@ class AgentInterface:
                     "session_id": payload.session_id or "",
                     "tts": payload.tts or False,
                     "verbose": payload.verbose or False,
-                    "data": payload.data or [],
+                    "data": payload.data or {},
                     "streaming": payload.streaming or False,
                     "reporting": False,
                 },
@@ -216,8 +216,7 @@ class AgentInterface:
         module_root: Optional[str] = Form(None),  # noqa: B008
         walker: Optional[str] = Form(None),  # noqa: B008
         args: Optional[str] = Form(None),  # noqa: B008
-        attachments: List[UploadFile] = File(default_factory=list),  # noqa: B008,
-        request: Request = None,  # noqa: B008
+        attachments: List[UploadFile] = File(default_factory=list),  # noqa: B008
     ) -> JSONResponse:
         """Synchronous walker execution"""
         if not all([agent_id, module_root, walker]):
