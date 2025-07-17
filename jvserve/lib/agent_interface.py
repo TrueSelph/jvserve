@@ -36,13 +36,15 @@ class AgentInterface:
     _instance = None
     logger = logging.getLogger(__name__)
 
-    def __init__(self, host: str = "0.0.0.0", port: int = 8000) -> None:
+    def __init__(self, host: str = "localhost", port: int = 8000) -> None:
         """Initialize the AgentInterface with JacInterface."""
         self._jac = JacInterface(host, port)
         self._cipher_alphabet = self._generate_cipher_alphabet()
 
     @classmethod
-    def get_instance(cls, host: str = "0.0.0.0", port: int = 8000) -> "AgentInterface":
+    def get_instance(
+        cls, host: str = "localhost", port: int = 8000
+    ) -> "AgentInterface":
         """Get a singleton instance of AgentInterface."""
         if cls._instance is None:
             env_host = os.environ.get("JIVAS_HOST", "localhost")

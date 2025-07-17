@@ -44,7 +44,7 @@ class JacCmd:
         @cmd_registry.register
         def jvserve(
             filename: str,
-            host: str = "0.0.0.0",
+            host: str = "localhost",
             port: int = 8000,
             loglevel: str = "INFO",
         ) -> None:
@@ -151,7 +151,7 @@ class JacCmd:
 
         @cmd_registry.register
         def jvfileserve(
-            directory: str, host: str = "0.0.0.0", port: int = 9000
+            directory: str, host: str = "localhost", port: int = 9000
         ) -> None:
             """Launch the file server for local files."""
             # load FastAPI
@@ -189,7 +189,7 @@ class JacCmd:
 
         @cmd_registry.register
         def jvproxyserve(
-            directory: str, host: str = "0.0.0.0", port: int = 9000
+            directory: str, host: str = "localhost", port: int = 9000
         ) -> None:
             """Launch the file proxy server for remote files."""
             # load FastAPI
