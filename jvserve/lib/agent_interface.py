@@ -1,33 +1,18 @@
 """Agent Interface class and methods for interaction with Jivas."""
 
-import asyncio
 import json
 import logging
 import os
 import string
 import traceback
-from typing import Any, AsyncGenerator, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote, unquote
 
 import requests
 from fastapi import File, Form, Request, UploadFile
-from fastapi.responses import JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse, Response
 
 from jvserve.lib.jac_interface import JacInterface
-
-
-class InteractPayload(BaseModel):
-    """Payload for agent interaction."""
-
-    agent_id: str
-    utterance: Optional[str] = None
-    channel: Optional[str] = None
-    session_id: Optional[str] = None
-    tts: Optional[bool] = None
-    verbose: Optional[bool] = None
-    data: Optional[dict] = None
-    streaming: Optional[bool] = None
 
 
 class AgentInterface:
@@ -60,81 +45,6 @@ class AgentInterface:
         if not hasattr(self, "_cipher_alphabet"):
             self._cipher_alphabet = self._generate_cipher_alphabet()
         return self._cipher_alphabet
-
-    async def interact(self, payload: InteractPayload) -> dict:
-        """Interact with an agent - fully async compatible"""
-        try:
-            walker_obj = await self._jac.spawn_walker_async(
-                walker_name="interact",
-                module_name="jivas.agent.action.interact",
-                attributes={
-                    "agent_id": payload.agent_id,
-                    "utterance": payload.utterance or "",
-                    "channel": payload.channel or "",
-                    "session_id": payload.session_id or "",
-                    "tts": payload.tts or False,
-                    "verbose": payload.verbose or False,
-                    "data": payload.data or {},
-                    "streaming": payload.streaming or False,
-                    "reporting": False,
-                },
-            )
-
-            if not walker_obj:
-                raise ValueError("Unable to spawn walker interact")
-
-            if payload.streaming:
-                if not (
-                    hasattr(walker_obj, "generator")
-                    and hasattr(walker_obj, "interaction_node")
-                ):
-                    self.logger.error("Missing attributes for streaming")
-                    return {}
-
-                interaction_node = walker_obj.interaction_node
-
-                async def generate(generator: Iterator) -> AsyncGenerator[str, None]:
-                    full_text = ""
-                    total_tokens = 0
-                    try:
-                        # Changed from async for to regular for loop
-                        for chunk in generator:
-                            full_text += chunk.content
-                            total_tokens += 1
-                            yield (
-                                "data: "
-                                + json.dumps(
-                                    {
-                                        "id": interaction_node.id,
-                                        "content": chunk.content,
-                                        "session_id": interaction_node.response.get(
-                                            "session_id"
-                                        ),
-                                        "type": chunk.type,
-                                        "metadata": chunk.response_metadata,
-                                    }
-                                )
-                                + "\n\n"
-                            )
-                            await asyncio.sleep(0.025)
-                    finally:
-                        # Finalize in background
-                        asyncio.create_task(
-                            self._finalize_interaction(
-                                interaction_node, full_text, total_tokens
-                            )
-                        )
-
-                return StreamingResponse(
-                    generate(walker_obj.generator),
-                    media_type="text/event-stream",
-                )
-            else:
-                return walker_obj.response or {}
-        except Exception as e:
-            self._jac.reset()
-            self.logger.error(f"Interaction failed: {e}\n{traceback.format_exc()}")
-            return {}
 
     async def action_webhook_exec(self, key: str, request: Request) -> Response:
         """Webhook execution optimized for concurrency"""

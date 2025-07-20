@@ -10,6 +10,7 @@ from typing import AsyncIterator, Optional
 import aiohttp
 from dotenv import load_dotenv
 from fastapi.responses import FileResponse, Response, StreamingResponse
+from jac_cloud.core.context import JaseciContext
 from jac_cloud.jaseci.main import FastAPI  # type: ignore
 from jac_cloud.jaseci.security import authenticator
 from jac_cloud.plugin.jaseci import NodeAnchor
@@ -17,6 +18,7 @@ from jaclang import JacMachine as Jac
 from jaclang.cli.cmdreg import cmd_registry
 from jaclang.runtimelib.machine import hookimpl
 from uvicorn import run as _run
+from watchfiles import Change, run_process
 
 from jvserve.lib.agent_interface import AgentInterface
 from jvserve.lib.agent_pulse import AgentPulse
@@ -31,6 +33,115 @@ from jvserve.lib.jvlogger import JVLogger
 # jac cloud dumps payload details to console which makes it hard to debug in JIVAS
 os.environ["LOGGER_LEVEL"] = "ERROR"
 load_dotenv(".env")
+# Set up logging
+JVLogger.setup_logging(level="INFO")
+logger = logging.getLogger(__name__)
+
+
+def run_jivas(filename: str, host: str = "localhost", port: int = 8000) -> None:
+    """Starts JIVAS server"""
+
+    # Create agent interface instance with configuration
+    agent_interface = AgentInterface.get_instance(host=host, port=port)
+
+    base, mod = os.path.split(filename)
+    base = base if base else "./"
+    mod = mod[:-4]
+
+    FastAPI.enable()
+
+    ctx = JaseciContext.create(None)
+    if filename.endswith(".jac"):
+        Jac.jac_import(target=mod, base_path=base, override_name="__main__")
+    elif filename.endswith(".jir"):
+        with open(filename, "rb") as f:
+            Jac.attach_program(load(f))
+            Jac.jac_import(target=mod, base_path=base, override_name="__main__")
+    else:
+        raise ValueError("Not a valid file!\nOnly supports `.jac` and `.jir`")
+
+    # Add health check endpoint
+    FastAPI.get().add_api_route("/health", lambda: {"status": "ok"}, methods=["GET"])
+
+    # Define post-startup function to run AFTER server is ready
+    async def post_startup() -> None:
+        """Wait for server to be ready before initializing agents"""
+        health_url = f"http://{host}:{port}/health"
+        max_retries = 10
+        retry_delay = 1.0
+
+        for attempt in range(max_retries):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(health_url, timeout=1) as response:
+                        if response.status == 200:
+                            logger.info("Server is ready, initializing agents...")
+                            await agent_interface.init_agents()
+                            return
+            except (aiohttp.ClientConnectorError, asyncio.TimeoutError) as e:
+                logger.warning(
+                    f"Server not ready yet (attempt {attempt + 1} / {max_retries}): {e}"
+                )
+                await asyncio.sleep(retry_delay)
+                retry_delay *= 1.5  # Exponential backoff
+
+        logger.error(
+            "Server did not become ready in time. Agent initialization skipped."
+        )
+
+    # set up lifespan events
+    async def on_startup() -> None:
+        logger.info("JIVAS is starting up...")
+        # Start initialization in background without blocking
+        asyncio.create_task(post_startup())
+
+    async def on_shutdown() -> None:
+        logger.info("JIVAS is shutting down...")
+        AgentPulse.stop()
+
+    app_lifespan = FastAPI.get().router.lifespan_context
+
+    @asynccontextmanager
+    async def lifespan_wrapper(app: FastAPI) -> AsyncIterator[Optional[str]]:
+        await on_startup()
+        async with app_lifespan(app) as maybe_state:
+            yield maybe_state
+        await on_shutdown()
+
+    FastAPI.get().router.lifespan_context = lifespan_wrapper
+
+    # Setup custom routes
+    FastAPI.get().add_api_route(
+        "/action/webhook/{key}",
+        endpoint=agent_interface.action_webhook_exec,
+        methods=["GET"],
+    )
+    FastAPI.get().add_api_route(
+        "/action/webhook/{key}",
+        endpoint=agent_interface.action_webhook_exec,
+        methods=["POST"],
+    )
+    FastAPI.get().add_api_route(
+        "/action/walker",
+        endpoint=agent_interface.action_walker_exec,
+        methods=["POST"],
+        dependencies=authenticator,
+    )
+
+    ctx.close()
+    # Run the app
+    FastAPI.start(host=host, port=port)
+
+
+def log_reload(changes: set[tuple[Change, str]]) -> None:
+    """Log changes."""
+    num_of_changes = len(changes)
+    logger.warning(
+        f'Detected {num_of_changes} change{"s" if num_of_changes > 1 else ""}'
+    )
+    for change in changes:
+        logger.warning(f"{change[1]} ({change[0].name})")
+    logger.warning("Reloading ...")
 
 
 class JacCmd:
@@ -42,112 +153,22 @@ class JacCmd:
         """Create Jac CLI cmds."""
 
         @cmd_registry.register
-        def jvserve(
-            filename: str,
-            host: str = "localhost",
-            port: int = 8000,
-            loglevel: str = "INFO",
-        ) -> None:
+        def jvserve(filename: str, host: str = "localhost", port: int = 8000) -> None:
             """Launch the jac application with proper server readiness handling."""
 
-            # Set up logging
-            JVLogger.setup_logging(level=loglevel)
-            logger = logging.getLogger(__name__)
-
-            # Create agent interface instance with configuration
-            agent_interface = AgentInterface.get_instance(host=host, port=port)
-
-            base, mod = os.path.split(filename)
-            base = base if base else "./"
-            mod = mod[:-4]
-
-            FastAPI.enable()
-            if filename.endswith(".jac"):
-                Jac.jac_import(target=mod, base_path=base, override_name="__main__")
-            elif filename.endswith(".jir"):
-                with open(filename, "rb") as f:
-                    Jac.attach_program(load(f))
-                    Jac.jac_import(target=mod, base_path=base, override_name="__main__")
-            else:
-                raise ValueError("Not a valid file!\nOnly supports `.jac` and `.jir`")
-
-            # Add health check endpoint
-            FastAPI.get().add_api_route(
-                "/health", lambda: {"status": "ok"}, methods=["GET"]
+            # awching the actions folder only
+            watchdir = os.path.join(
+                os.path.abspath(os.path.dirname(filename)), "actions", ""
             )
 
-            # Define post-startup function to run AFTER server is ready
-            async def post_startup() -> None:
-                """Wait for server to be ready before initializing agents"""
-                health_url = f"http://{host}:{port}/health"
-                max_retries = 10
-                retry_delay = 1.0
-
-                for attempt in range(max_retries):
-                    try:
-                        async with aiohttp.ClientSession() as session:
-                            async with session.get(health_url, timeout=1) as response:
-                                if response.status == 200:
-                                    logger.info(
-                                        "Server is ready, initializing agents..."
-                                    )
-                                    await agent_interface.init_agents()
-                                    return
-                    except (aiohttp.ClientConnectorError, asyncio.TimeoutError) as e:
-                        logger.warning(
-                            f"Server not ready yet (attempt {attempt + 1} / {max_retries}): {e}"
-                        )
-                        await asyncio.sleep(retry_delay)
-                        retry_delay *= 1.5  # Exponential backoff
-
-                logger.error(
-                    "Server did not become ready in time. Agent initialization skipped."
-                )
-
-            # set up lifespan events
-            async def on_startup() -> None:
-                logger.info("JIVAS is starting up...")
-                # Start initialization in background without blocking
-                asyncio.create_task(post_startup())
-
-            async def on_shutdown() -> None:
-                logger.info("JIVAS is shutting down...")
-                AgentPulse.stop()
-
-            app_lifespan = FastAPI.get().router.lifespan_context
-
-            @asynccontextmanager
-            async def lifespan_wrapper(app: FastAPI) -> AsyncIterator[Optional[str]]:
-                await on_startup()
-                async with app_lifespan(app) as maybe_state:
-                    yield maybe_state
-                await on_shutdown()
-
-            FastAPI.get().router.lifespan_context = lifespan_wrapper
-
-            # Setup custom routes
-            FastAPI.get().add_api_route(
-                "/interact", endpoint=agent_interface.interact, methods=["POST"]
+            run_process(
+                watchdir,
+                target=run_jivas,
+                args=(filename, host, port),
+                callback=log_reload,
             )
-            FastAPI.get().add_api_route(
-                "/action/webhook/{key}",
-                endpoint=agent_interface.action_webhook_exec,
-                methods=["GET"],
-            )
-            FastAPI.get().add_api_route(
-                "/action/webhook/{key}",
-                endpoint=agent_interface.action_webhook_exec,
-                methods=["POST"],
-            )
-            FastAPI.get().add_api_route(
-                "/action/walker",
-                endpoint=agent_interface.action_walker_exec,
-                methods=["POST"],
-                dependencies=authenticator,
-            )
-
-            # Run the app
-            FastAPI.start(host=host, port=port)
+            return
+            # run_jivas(filename=filename, host=host, port=port)
 
         @cmd_registry.register
         def jvfileserve(
