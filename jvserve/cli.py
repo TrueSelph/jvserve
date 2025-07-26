@@ -12,7 +12,6 @@ from dotenv import load_dotenv
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from jac_cloud.core.context import JaseciContext
 from jac_cloud.jaseci.main import FastAPI  # type: ignore
-from jac_cloud.jaseci.security import authenticator
 from jac_cloud.plugin.jaseci import NodeAnchor
 from jaclang import JacMachine as Jac
 from jaclang.cli.cmdreg import cmd_registry
@@ -109,24 +108,6 @@ def run_jivas(filename: str, host: str = "localhost", port: int = 8000) -> None:
         await on_shutdown()
 
     FastAPI.get().router.lifespan_context = lifespan_wrapper
-
-    # Setup custom routes
-    FastAPI.get().add_api_route(
-        "/action/webhook/{key}",
-        endpoint=agent_interface.action_webhook_exec,
-        methods=["GET"],
-    )
-    FastAPI.get().add_api_route(
-        "/action/webhook/{key}",
-        endpoint=agent_interface.action_webhook_exec,
-        methods=["POST"],
-    )
-    FastAPI.get().add_api_route(
-        "/action/walker",
-        endpoint=agent_interface.action_walker_exec,
-        methods=["POST"],
-        dependencies=authenticator,
-    )
 
     ctx.close()
     # Run the app
