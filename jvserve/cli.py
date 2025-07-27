@@ -58,13 +58,10 @@ def run_jivas(filename: str, host: str = "localhost", port: int = 8000) -> None:
     else:
         raise ValueError("Not a valid file!\nOnly supports `.jac` and `.jir`")
 
-    # Add health check endpoint
-    FastAPI.get().add_api_route("/health", lambda: {"status": "ok"}, methods=["GET"])
-
     # Define post-startup function to run AFTER server is ready
     async def post_startup() -> None:
         """Wait for server to be ready before initializing agents"""
-        health_url = f"http://{host}:{port}/health"
+        health_url = f"http://{host}:{port}/healthz"
         max_retries = 10
         retry_delay = 1.0
 
