@@ -20,7 +20,6 @@ from uvicorn import run as _run
 from watchfiles import Change, run_process
 
 from jvserve.lib.agent_interface import AgentInterface
-from jvserve.lib.agent_pulse import AgentPulse
 from jvserve.lib.file_interface import (
     DEFAULT_FILES_ROOT,
     FILE_INTERFACE,
@@ -96,7 +95,6 @@ def run_jivas(filename: str, host: str = "localhost", port: int = 8000) -> None:
 
     async def on_shutdown() -> None:
         logger.info("JIVAS is shutting down...")
-        AgentPulse.stop()
 
     app_lifespan = FastAPI.get().router.lifespan_context
 
@@ -112,6 +110,58 @@ def run_jivas(filename: str, host: str = "localhost", port: int = 8000) -> None:
     ctx.close()
     # Run the app
     FastAPI.start(host=host, port=port)
+
+
+def serve_proxied_file(file_path: str) -> FileResponse | StreamingResponse:
+    """Serve a proxied file from a remote or local URL."""
+    import mimetypes
+
+    import requests
+    from fastapi import HTTPException
+
+    if FILE_INTERFACE == "local":
+        return FileResponse(path=os.path.join(DEFAULT_FILES_ROOT, file_path))
+
+    file_url = file_interface.get_file_url(file_path)
+
+    if file_url and ("localhost" in file_url or "127.0.0.1" in file_url):
+        # prevent recusive calls when env vars are not detected
+        raise HTTPException(status_code=500, detail="Environment not set up correctly")
+
+    if not file_url:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    file_extension = os.path.splitext(file_path)[1].lower()
+
+    # List of extensions to serve directly
+    direct_serve_extensions = [
+        ".pdf",
+        ".html",
+        ".txt",
+        ".js",
+        ".css",
+        ".json",
+        ".xml",
+        ".svg",
+        ".csv",
+        ".ico",
+    ]
+
+    if file_extension in direct_serve_extensions:
+        file_response = requests.get(file_url)
+        file_response.raise_for_status()  # Raise HTTPError for bad responses (4XX or 5XX)
+
+        mime_type = mimetypes.guess_type(file_path)[0] or "application/octet-stream"
+
+        return StreamingResponse(iter([file_response.content]), media_type=mime_type)
+
+    file_response = requests.get(file_url, stream=True)
+    file_response.raise_for_status()
+
+    return StreamingResponse(
+        file_response.iter_content(chunk_size=1024),
+        media_type="application/octet-stream",
+    )
 
 
 def log_reload(changes: set[tuple[Change, str]]) -> None:
@@ -248,55 +298,3 @@ class JacCmd:
 
             # run the app
             _run(app, host=host, port=port)
-
-
-def serve_proxied_file(file_path: str) -> FileResponse | StreamingResponse:
-    """Serve a proxied file from a remote or local URL."""
-    import mimetypes
-
-    import requests
-    from fastapi import HTTPException
-
-    if FILE_INTERFACE == "local":
-        return FileResponse(path=os.path.join(DEFAULT_FILES_ROOT, file_path))
-
-    file_url = file_interface.get_file_url(file_path)
-
-    if file_url and ("localhost" in file_url or "127.0.0.1" in file_url):
-        # prevent recusive calls when env vars are not detected
-        raise HTTPException(status_code=500, detail="Environment not set up correctly")
-
-    if not file_url:
-        raise HTTPException(status_code=404, detail="File not found")
-
-    file_extension = os.path.splitext(file_path)[1].lower()
-
-    # List of extensions to serve directly
-    direct_serve_extensions = [
-        ".pdf",
-        ".html",
-        ".txt",
-        ".js",
-        ".css",
-        ".json",
-        ".xml",
-        ".svg",
-        ".csv",
-        ".ico",
-    ]
-
-    if file_extension in direct_serve_extensions:
-        file_response = requests.get(file_url)
-        file_response.raise_for_status()  # Raise HTTPError for bad responses (4XX or 5XX)
-
-        mime_type = mimetypes.guess_type(file_path)[0] or "application/octet-stream"
-
-        return StreamingResponse(iter([file_response.content]), media_type=mime_type)
-
-    file_response = requests.get(file_url, stream=True)
-    file_response.raise_for_status()
-
-    return StreamingResponse(
-        file_response.iter_content(chunk_size=1024),
-        media_type="application/octet-stream",
-    )

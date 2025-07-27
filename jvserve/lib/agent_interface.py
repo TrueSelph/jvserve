@@ -56,7 +56,7 @@ class AgentInterface:
         action_label = action_label.replace("action_label=", "")
         agent_id = agent_id.replace("agent_id=", "")
 
-        endpoint = f"http://{self._jac.host}:{self._jac.port}/walker/pulse"
+        endpoint = f"http://{self._jac.host}:{self._jac.port}/walker/do_pulse"
         headers = {"Authorization": f"Bearer {self._jac.token}"}
         payload = {"action_label": action_label, "agent_id": agent_id}
 
@@ -92,6 +92,6 @@ class AgentInterface:
 
 
 # Module-level functions
-def pulse_exec(action_label: str, agent_id: str) -> dict:
+def do_pulse(action_label: str, agent_id: str) -> dict:
     """Execute pulse action synchronously"""
     return AgentInterface.get_instance().api_pulse(action_label, agent_id)
